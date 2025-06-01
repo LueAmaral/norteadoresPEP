@@ -1,20 +1,19 @@
 {
-    "categorias": {
-        "Médico": [
-            {
-                "nome": "Consulta Inicial",
-                "conteudo": "Paciente apresenta queixas de dor abdominal há 3 dias, sem febre..."
-            },
-            {
-                "nome": "Retorno de Exames",
-                "conteudo": "Paciente retorna com exames de sangue, sem alterações significativas..."
-            }
-        ],
-        "Enfermagem": [
-            {
-                "nome": "Curativo Simples",
-                "conteudo": "Realizar curativo simples em membro superior, trocar gazes e fixar com micropore..."
-            }
-        ]
+    "Médico": {
+        "Diabetes": {
+            "Subjetivo": "Paciente diabético relata...",
+            "Objetivo": "Glicemia capilar: ...",
+            "Avaliação": "Diabetes Mellitus tipo 2 descompensado.",
+            "Plano": "Ajustar dose de insulina..."
+        },
+        "Hipertensão": {
+            "Subjetivo": "Paciente hipertenso refere cefaleia..."
+        }
+    },
+    "Enfermagem": {
+        "Curativos": {
+            "Limpeza da Ferida": "Realizada limpeza com SF 0,9%.",
+            "Cobertura": "Aplicada cobertura com gaze estéril."
+        }
     }
 }

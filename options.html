@@ -3,40 +3,79 @@
 
 <head>
     <meta charset="UTF-8" />
+    <title>Configurações - Máscaras de Atendimento</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            width: 350px;
-            padding: 10px;
+            width: 450px;
+            padding: 15px;
+        }
+
+        h3 {
+            margin-top: 0;
         }
 
         label {
-            display: flex;
-            align-items: center;
-            margin-bottom: 6px;
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
         }
 
+        select,
         input[type="checkbox"] {
+            margin-bottom: 15px;
+        }
+
+        #careLinesContainer label {
+            font-weight: normal;
+            display: flex;
+            align-items: center;
+        }
+
+        #careLinesContainer input[type="checkbox"] {
             margin-right: 8px;
+            margin-bottom: 5px;
         }
 
         #syncStatus {
-            margin-top: 10px;
+            margin-top: 15px;
             font-size: 0.9em;
         }
 
         button {
             margin-top: 10px;
-            padding: 6px 12px;
+            padding: 8px 15px;
+            cursor: pointer;
+        }
+
+        .container-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
         }
     </style>
 </head>
 
 <body>
-    <h3>Configurações</h3>
-    <div id="categoriesContainer"></div>
-    <button id="syncBtn">Sincronizar agora</button>
+    <h3>Configurações da Extensão</h3>
+
+    <div class="container-section">
+        <label for="professionalCategorySelect">Minha Categoria Profissional:</label>
+        <select id="professionalCategorySelect">
+            <option value="">Carregando...</option>
+        </select>
+    </div>
+
+    <div class="container-section">
+        <h4>Linhas de Cuidado Habilitadas (para a categoria acima):</h4>
+        <div id="careLinesContainer">
+            <p>Selecione uma categoria profissional para ver as linhas de cuidado.</p>
+        </div>
+    </div>
+
+    <button id="syncBtn">Sincronizar Snippets Agora</button>
     <div id="syncStatus"></div>
+
     <script src="options.js"></script>
 </body>
 
