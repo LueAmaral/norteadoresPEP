@@ -1,0 +1,42 @@
+{
+    "manifest_version": 3,
+    "name": "Máscaras de Atendimento",
+    "version": "1.0",
+    "description": "Cole rapidamente máscaras de atendimento via atalho ou botão.",
+    "permissions": [
+        "storage",
+        "scripting",
+        "activeTab",
+        "alarms"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": "icon.png"
+    },
+    "options_page": "options.html",
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "commands": {
+        "abrir-snippets": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+Y"
+            },
+            "description": "Abrir menu de snippets"
+        }
+    }
+}

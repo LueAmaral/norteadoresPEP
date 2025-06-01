@@ -1,0 +1,20 @@
+{
+    "categorias": {
+        "Médico": [
+            {
+                "nome": "Consulta Inicial",
+                "conteudo": "Paciente apresenta queixas de dor abdominal há 3 dias, sem febre..."
+            },
+            {
+                "nome": "Retorno de Exames",
+                "conteudo": "Paciente retorna com exames de sangue, sem alterações significativas..."
+            }
+        ],
+        "Enfermagem": [
+            {
+                "nome": "Curativo Simples",
+                "conteudo": "Realizar curativo simples em membro superior, trocar gazes e fixar com micropore..."
+            }
+        ]
+    }
+}
