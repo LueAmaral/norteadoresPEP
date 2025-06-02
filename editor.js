@@ -3,39 +3,40 @@ document.addEventListener("DOMContentLoaded", () => {
     const snippetsTreeView = document.getElementById("snippetsTreeView");
     const snippetsTreeViewLoading = document.getElementById("snippetsTreeViewLoading");
     const editSnippetForm = document.getElementById("editSnippetForm");
+    const formFieldsContainer = document.getElementById("formFieldsContainer");
+    const noSnippetSelectedMessage = document.getElementById("noSnippetSelectedMessage");
     
     // Campos do formulário
     const editProfCatSelect = document.getElementById("editProfCatSelect");
     const editNewProfCatInput = document.getElementById("editNewProfCatInput");
     const editCareLineSelect = document.getElementById("editCareLineSelect");
     const editNewCareLineInput = document.getElementById("editNewCareLineInput");
-    const editSnippetTypeInput = document.getElementById("editSnippetType");
-    const editSnippetCommandInput = document.getElementById("editSnippetCommand"); // Novo campo
+    const editSnippetTypeInput = document.getElementById("editSnippetType"); // Nome/Tipo do Snippet
+    const editSnippetCommandInput = document.getElementById("editSnippetCommand");
     const editSnippetContentInput = document.getElementById("editSnippetContent");
 
     const btnSaveSnippet = document.getElementById("btnSaveSnippet");
     const btnDeleteSnippet = document.getElementById("btnDeleteSnippet");
-    const btnClearForm = document.getElementById("btnClearForm");
+    const btnClearForm = document.getElementById("btnClearForm"); // Botão "Novo Snippet"
     const btnExportJson = document.getElementById("btnExportJson");
     const btnImportJson = document.getElementById("btnImportJson");
     const fileImportJson = document.getElementById("fileImportJson");
 
     let currentSnippets = {};
-    let selectedItemPath = null; // {profCat, careLine, snippetType}
-    let treeState = {}; // Para guardar o estado de expansão da árvore { 'profCat': true, 'profCat/careLine': true }
-
+    let selectedItemPath = null;
+    let treeState = {}; // Para manter o estado de expansão/recolhimento dos nós da árvore
     const ADD_NEW_VALUE = "__add_new__";
 
     // Enviar mensagem ao background
     function sendMessage(message) {
+        console.log("[EditorJS] Enviando mensagem para o background:", message);
         return new Promise((resolve, reject) => {
             chrome.runtime.sendMessage(message, (response) => {
                 if (chrome.runtime.lastError) {
+                    console.error("[EditorJS] Erro ao enviar mensagem:", chrome.runtime.lastError);
                     return reject(chrome.runtime.lastError);
                 }
-                if (response && response.error) {
-                    return reject(new Error(response.error)); // Garante que seja um objeto Error
-                }
+                console.log("[EditorJS] Resposta do background:", response);
                 resolve(response);
             });
         });
@@ -43,383 +44,335 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Carregar snippets
     async function loadSnippets() {
+        console.log("[EditorJS] Iniciando loadSnippets");
+        if (snippetsTreeViewLoading) snippetsTreeViewLoading.style.display = "block";
+        if (snippetsTreeView) snippetsTreeView.innerHTML = ""; // Limpa a árvore antiga
+
         try {
-            snippetsTreeViewLoading.style.display = "block";
-            snippetsTreeView.innerHTML = "";
-            const response = await sendMessage({ action: "getSnippetsForEditor" });
-            currentSnippets = response.snippets || {};
+            const data = await sendMessage({ action: "getAllSnippets" });
+            console.log("[EditorJS] Snippets recebidos do background:", data);
+            currentSnippets = data || {};
+            if (snippetsTreeViewLoading) snippetsTreeViewLoading.style.display = "none";
             renderTreeView();
-            populateProfCatSelect();
-            btnClearForm.click(); // Limpa e prepara o formulário
+            populateProfCatSelect(); 
+            handleFormDisplay(null); // Configura o estado inicial do formulário
         } catch (error) {
-            console.error("Erro ao carregar snippets:", error);
-            snippetsTreeView.innerHTML = `<p>Erro ao carregar snippets: ${error.message}</p>`;
-        } finally {
-            snippetsTreeViewLoading.style.display = "none";
+            console.error("[EditorJS] Erro ao carregar snippets:", error);
+            if (snippetsTreeViewLoading) snippetsTreeViewLoading.style.display = "none";
+            if (snippetsTreeView) snippetsTreeView.innerHTML = "<p>Erro ao carregar snippets. Verifique o console para mais detalhes.</p>";
         }
     }
 
+    // Controla a exibição do formulário e da mensagem "nenhum selecionado"
+    function handleFormDisplay(itemSelected = false) {
+        if (itemSelected) {
+            if(formFieldsContainer) formFieldsContainer.classList.remove("hidden");
+            if(noSnippetSelectedMessage) noSnippetSelectedMessage.classList.add("hidden");
+        } else {
+            if(formFieldsContainer) formFieldsContainer.classList.add("hidden");
+            if(noSnippetSelectedMessage) noSnippetSelectedMessage.classList.remove("hidden");
+        }
+    }
+    
     // Renderizar a árvore de snippets com funcionalidade de expandir/recolher
     function renderTreeView() {
-        snippetsTreeView.innerHTML = "";
+        console.log("[EditorJS] Iniciando renderTreeView com currentSnippets:", JSON.parse(JSON.stringify(currentSnippets)));
+        if (!snippetsTreeView) {
+            console.error("[EditorJS] snippetsTreeView não encontrado no DOM.");
+            return;
+        }
+        snippetsTreeView.innerHTML = ""; 
+
         if (Object.keys(currentSnippets).length === 0) {
             snippetsTreeView.innerHTML = "<p>Nenhum snippet definido. Adicione um novo usando o formulário.</p>";
+            populateProfCatSelect(); 
             return;
         }
 
         for (const profCat in currentSnippets) {
-            const profCatPath = profCat;
-            const isProfCatExpanded = treeState[profCatPath] === undefined ? true : treeState[profCatPath]; // Expandido por padrão
-
             const profCatDiv = document.createElement("div");
-            profCatDiv.style.paddingLeft = "5px";
-            
             const profCatToggle = document.createElement("span");
-            profCatToggle.textContent = isProfCatExpanded ? "▼ " : "► ";
-            profCatToggle.style.cursor = "pointer";
-            profCatToggle.addEventListener("click", (e) => {
-                e.stopPropagation();
-                treeState[profCatPath] = !isProfCatExpanded;
-                renderTreeView(); // Re-renderiza para refletir o estado
-                if (selectedItemPath) selectSnippet(selectedItemPath.profCat, selectedItemPath.careLine, selectedItemPath.snippetType); // Mantém seleção
-            });
-
-            const profCatLabel = document.createElement("span");
-            profCatLabel.textContent = profCat;
-            profCatLabel.style.fontWeight = "bold";
-            profCatLabel.style.cursor = "pointer";
-            profCatLabel.addEventListener("click", () => { // Clicar no nome também expande/recolhe
-                 treeState[profCatPath] = !isProfCatExpanded;
-                renderTreeView();
-                if (selectedItemPath) selectSnippet(selectedItemPath.profCat, selectedItemPath.careLine, selectedItemPath.snippetType);
-            });
-
+            profCatToggle.textContent = (treeState[profCat] && treeState[profCat].expanded ? "▼ " : "► ") + profCat;
+            profCatToggle.classList.add("tree-item", "tree-category");
+            profCatToggle.style.fontWeight = "bold";
+            profCatToggle.dataset.path = profCat;
+            profCatToggle.addEventListener("click", () => toggleNode(profCat));
             profCatDiv.appendChild(profCatToggle);
-            profCatDiv.appendChild(profCatLabel);
-            snippetsTreeView.appendChild(profCatDiv);
 
-            if (isProfCatExpanded) {
+            if (treeState[profCat] && treeState[profCat].expanded) {
+                const careLinesContainer = document.createElement("div");
+                careLinesContainer.style.paddingLeft = "20px";
                 for (const careLine in currentSnippets[profCat]) {
-                    const careLinePath = `${profCat}/${careLine}`;
-                    const isCareLineExpanded = treeState[careLinePath] === undefined ? true : treeState[careLinePath];
-
                     const careLineDiv = document.createElement("div");
-                    careLineDiv.style.paddingLeft = "15px";
-
                     const careLineToggle = document.createElement("span");
-                    careLineToggle.textContent = isCareLineExpanded ? "▼ " : "► ";
-                    careLineToggle.style.cursor = "pointer";
-                    careLineToggle.addEventListener("click", (e) => {
-                        e.stopPropagation();
-                        treeState[careLinePath] = !isCareLineExpanded;
-                        renderTreeView();
-                        if (selectedItemPath) selectSnippet(selectedItemPath.profCat, selectedItemPath.careLine, selectedItemPath.snippetType);
-                    });
-
-                    const careLineLabel = document.createElement("span");
-                    careLineLabel.textContent = careLine;
-                    careLineLabel.style.cursor = "pointer";
-                     careLineLabel.addEventListener("click", () => { // Clicar no nome também expande/recolhe
-                        treeState[careLinePath] = !isCareLineExpanded;
-                        renderTreeView();
-                        if (selectedItemPath) selectSnippet(selectedItemPath.profCat, selectedItemPath.careLine, selectedItemPath.snippetType);
-                    });
-
+                    const careLinePath = `${profCat}/${careLine}`;
+                    careLineToggle.textContent = (treeState[careLinePath] && treeState[careLinePath].expanded ? "▼ " : "► ") + careLine;
+                    careLineToggle.classList.add("tree-item", "tree-careline");
+                    careLineToggle.dataset.path = careLinePath;
+                    careLineToggle.addEventListener("click", () => toggleNode(careLinePath));
                     careLineDiv.appendChild(careLineToggle);
-                    careLineDiv.appendChild(careLineLabel);
-                    snippetsTreeView.appendChild(careLineDiv);
 
-                    if (isCareLineExpanded) {
-                        for (const snippetType in currentSnippets[profCat][careLine]) {
-                            const snippetTypeDiv = document.createElement("div");
-                            snippetTypeDiv.textContent = snippetType;
-                            snippetTypeDiv.classList.add("tree-item");
-                            snippetTypeDiv.style.paddingLeft = "25px";
-                            snippetTypeDiv.dataset.profCat = profCat;
-                            snippetTypeDiv.dataset.careLine = careLine;
-                            snippetTypeDiv.dataset.snippetType = snippetType;
-
-                            snippetTypeDiv.addEventListener("click", () => {
-                                selectSnippet(profCat, careLine, snippetType);
+                    if (treeState[careLinePath] && treeState[careLinePath].expanded) {
+                        const snippetsContainer = document.createElement("div");
+                        snippetsContainer.style.paddingLeft = "20px";
+                        for (const snippetName in currentSnippets[profCat][careLine]) {
+                            const snippetItem = document.createElement("div");
+                            snippetItem.textContent = snippetName;
+                            snippetItem.classList.add("tree-item", "tree-snippet");
+                            snippetItem.dataset.path = `${profCat}/${careLine}/${snippetName}`;
+                            snippetItem.addEventListener("click", (e) => {
+                                selectItem(e.target.dataset.path);
                             });
-                            snippetsTreeView.appendChild(snippetTypeDiv);
+                            snippetsContainer.appendChild(snippetItem);
                         }
+                        careLineDiv.appendChild(snippetsContainer);
                     }
+                    careLinesContainer.appendChild(careLineDiv);
                 }
+                profCatDiv.appendChild(careLinesContainer);
+            }
+            snippetsTreeView.appendChild(profCatDiv);
+        }
+         // Adicionar destaque ao item selecionado
+        if (selectedItemPath) {
+            const selectedElement = snippetsTreeView.querySelector(`[data-path="${selectedItemPath}"]`);
+            if (selectedElement) {
+                selectedElement.classList.add("selected-item");
             }
         }
+    }
+
+    function toggleNode(path) {
+        if (!treeState[path]) treeState[path] = { expanded: false };
+        treeState[path].expanded = !treeState[path].expanded;
+        renderTreeView(); // Re-renderiza a árvore para refletir a mudança
+    }
+
+    function selectItem(path) {
+        console.log("[EditorJS] Item selecionado:", path);
+        selectedItemPath = path;
+        // Remover classe 'selected-item' de qualquer item previamente selecionado
+        document.querySelectorAll(".tree-item.selected-item").forEach(el => el.classList.remove("selected-item"));
+        // Adicionar classe ao item recém-selecionado
+        const selectedElement = document.querySelector(`.tree-item[data-path="${path}"]`);
+        if (selectedElement) {
+            selectedElement.classList.add("selected-item");
+        }
+        populateFormWithSnippetDetails(path);
+        handleFormDisplay(true);
+        if(btnDeleteSnippet) btnDeleteSnippet.classList.remove("hidden");
     }
     
     // Popular select de Categoria Profissional
     function populateProfCatSelect(selectedValue) {
-        editProfCatSelect.innerHTML = '<option value="">Selecione ou Adicione Nova...</option>';
-        Object.keys(currentSnippets).sort().forEach(cat => {
+        if (!editProfCatSelect) return;
+        const previousValue = selectedValue || editProfCatSelect.value;
+        editProfCatSelect.innerHTML = '<option value="">Selecione uma Categoria</option>';
+        
+        const categories = Object.keys(currentSnippets);
+        categories.forEach(cat => {
             const option = document.createElement("option");
             option.value = cat;
             option.textContent = cat;
             editProfCatSelect.appendChild(option);
         });
+
         const addNewOption = document.createElement("option");
         addNewOption.value = ADD_NEW_VALUE;
-        addNewOption.textContent = "Adicionar Nova Categoria...";
+        addNewOption.textContent = "--- Adicionar Nova Categoria ---";
         editProfCatSelect.appendChild(addNewOption);
-        if (selectedValue) {
-            editProfCatSelect.value = selectedValue;
+        
+        if (previousValue && categories.includes(previousValue)) {
+            editProfCatSelect.value = previousValue;
+        } else if (selectedValue === ADD_NEW_VALUE) {
+             editProfCatSelect.value = ADD_NEW_VALUE;
         }
-        handleProfCatSelectChange(); // Para mostrar/esconder input e popular linhas de cuidado
+        handleProfCatChange(); // Para popular linhas de cuidado se uma categoria já estiver selecionada
     }
 
     // Popular select de Linha de Cuidado
     function populateCareLineSelect(profCat, selectedValue) {
-        editCareLineSelect.innerHTML = '<option value="">Selecione ou Adicione Nova...</option>';
+        if (!editCareLineSelect) return;
+        const previousValue = selectedValue || editCareLineSelect.value;
+        editCareLineSelect.innerHTML = '<option value="">Selecione uma Linha de Cuidado</option>';
+        editCareLineSelect.disabled = true;
+
         if (profCat && currentSnippets[profCat]) {
-            Object.keys(currentSnippets[profCat]).sort().forEach(line => {
+            editCareLineSelect.disabled = false;
+            const careLines = Object.keys(currentSnippets[profCat]);
+            careLines.forEach(cl => {
                 const option = document.createElement("option");
-                option.value = line;
-                option.textContent = line;
+                option.value = cl;
+                option.textContent = cl;
                 editCareLineSelect.appendChild(option);
             });
         }
         const addNewOption = document.createElement("option");
         addNewOption.value = ADD_NEW_VALUE;
-        addNewOption.textContent = "Adicionar Nova Linha de Cuidado...";
+        addNewOption.textContent = "--- Adicionar Nova Linha de Cuidado ---";
         editCareLineSelect.appendChild(addNewOption);
-        if (selectedValue) {
-            editCareLineSelect.value = selectedValue;
+
+        if (profCat && currentSnippets[profCat] && previousValue && Object.keys(currentSnippets[profCat]).includes(previousValue)) {
+            editCareLineSelect.value = previousValue;
+        } else if (selectedValue === ADD_NEW_VALUE) {
+            editCareLineSelect.value = ADD_NEW_VALUE;
         }
-        handleCareLineSelectChange(); // Para mostrar/esconder input
+        handleCareLineChange();
     }
 
-    // Event listeners para os selects mostrarem/esconderem os inputs de "novo"
-    editProfCatSelect.addEventListener("change", handleProfCatSelectChange);
-    editCareLineSelect.addEventListener("change", handleCareLineSelectChange);
-
-    function handleProfCatSelectChange() {
+    function handleProfCatChange() {
         const selectedProfCat = editProfCatSelect.value;
         if (selectedProfCat === ADD_NEW_VALUE) {
-            editNewProfCatInput.classList.remove("hidden");
-            editNewProfCatInput.required = true;
-            populateCareLineSelect(null); // Limpa linhas de cuidado se está adicionando nova categoria
+            editNewProfCatInput.style.display = "block";
+            editNewProfCatInput.focus();
+            populateCareLineSelect(null); // Limpa linhas de cuidado
+            editCareLineSelect.value = ADD_NEW_VALUE; // Força a exibição do input de nova linha
+            handleCareLineChange();
         } else {
-            editNewProfCatInput.classList.add("hidden");
-            editNewProfCatInput.required = false;
+            editNewProfCatInput.style.display = "none";
             editNewProfCatInput.value = "";
             populateCareLineSelect(selectedProfCat);
         }
     }
 
-    function handleCareLineSelectChange() {
-        if (editCareLineSelect.value === ADD_NEW_VALUE) {
-            editNewCareLineInput.classList.remove("hidden");
-            editNewCareLineInput.required = true;
+    function handleCareLineChange() {
+        const selectedCareLine = editCareLineSelect.value;
+        if (selectedCareLine === ADD_NEW_VALUE) {
+            editNewCareLineInput.style.display = "block";
+            editNewCareLineInput.focus();
         } else {
-            editNewCareLineInput.classList.add("hidden");
-            editNewCareLineInput.required = false;
+            editNewCareLineInput.style.display = "none";
             editNewCareLineInput.value = "";
         }
     }
 
-    // Limpar formulário para novo snippet
-    function clearForm() {
-        editSnippetForm.reset();
-        editProfCatSelect.value = "";
-        editCareLineSelect.value = "";
-        editNewProfCatInput.value = "";
-        editNewProfCatInput.classList.add("hidden");
-        editNewCareLineInput.value = "";
-        editNewCareLineInput.classList.add("hidden");
-        editSnippetTypeInput.value = "";
-        editSnippetCommandInput.value = ""; // Limpar campo de comando
-        editSnippetContentInput.value = "";
-        selectedItemPath = null;
-        btnDeleteSnippet.classList.add("hidden");
-        editProfCatSelect.disabled = false;
-        editCareLineSelect.disabled = false;
-        editSnippetTypeInput.disabled = false;
-        handleProfCatSelectChange(); // Atualiza o estado do select de linha de cuidado
-        
-        // Foca no primeiro campo relevante dependendo do estado dos selects
-        if (editProfCatSelect.options.length > 1 && editProfCatSelect.value !== ADD_NEW_VALUE) {
-            editProfCatSelect.focus();
+    if(editProfCatSelect) editProfCatSelect.addEventListener("change", handleProfCatChange);
+    if(editCareLineSelect) editCareLineSelect.addEventListener("change", handleCareLineChange);
+
+    function populateFormWithSnippetDetails(path) {
+        if (!path) {
+            clearAndPrepareFormForNew();
+            return;
+        }
+
+        const parts = path.split('/');
+        if (parts.length < 1) return;
+
+        const profCat = parts[0];
+        const careLine = parts.length > 1 ? parts[1] : null;
+        const snippetName = parts.length > 2 ? parts[2] : null;
+
+        populateProfCatSelect(profCat); // Popula e seleciona a categoria
+        if (profCat !== ADD_NEW_VALUE) { // Se não for "adicionar nova"
+             editNewProfCatInput.style.display = "none";
+        }
+
+        if (careLine) {
+            populateCareLineSelect(profCat, careLine); // Popula e seleciona a linha de cuidado
+            if (careLine !== ADD_NEW_VALUE) {
+                editNewCareLineInput.style.display = "none";
+            }
         } else {
-            editNewProfCatInput.focus();
+            populateCareLineSelect(profCat, null); // Apenas popula, não seleciona linha específica
+        }
+        
+        if (snippetName && currentSnippets[profCat] && currentSnippets[profCat][careLine] && currentSnippets[profCat][careLine][snippetName]) {
+            const snippetData = currentSnippets[profCat][careLine][snippetName];
+            editSnippetTypeInput.value = snippetName;
+            if (typeof snippetData === 'object' && snippetData !== null) {
+                editSnippetCommandInput.value = snippetData.command || "";
+                editSnippetContentInput.value = snippetData.content || "";
+            } else if (typeof snippetData === 'string') { // Legado ou snippet simples
+                editSnippetCommandInput.value = ""; // Sem comando explícito
+                editSnippetContentInput.value = snippetData;
+            }
+            if(btnDeleteSnippet) btnDeleteSnippet.classList.remove("hidden");
+        } else { // Limpa campos do snippet se apenas categoria/linha for selecionada ou se for novo
+            editSnippetTypeInput.value = "";
+            editSnippetCommandInput.value = "";
+            editSnippetContentInput.value = "";
+            if(btnDeleteSnippet) btnDeleteSnippet.classList.add("hidden");
         }
     }
-
-    // Selecionar snippet para edição
-    function selectSnippet(profCat, careLine, snippetType) {
-        if (!currentSnippets[profCat] || !currentSnippets[profCat][careLine] || !currentSnippets[profCat][careLine][snippetType]) {
-            console.warn("Snippet não encontrado para seleção:", profCat, careLine, snippetType);
-            clearForm();
-            return;
-        }
-        selectedItemPath = { profCat, careLine, snippetType };
-
-        populateProfCatSelect(profCat);
-        editNewProfCatInput.classList.add("hidden");
-        editNewProfCatInput.value = "";
-
-        populateCareLineSelect(profCat, careLine);
-        editNewCareLineInput.classList.add("hidden");
-        editNewCareLineInput.value = "";
-
-        editSnippetTypeInput.value = snippetType;
-        
-        const snippetData = currentSnippets[profCat][careLine][snippetType];
-        if (typeof snippetData === 'object' && snippetData.content) {
-            editSnippetContentInput.value = snippetData.content;
-            editSnippetCommandInput.value = snippetData.command || ""; // Popular campo de comando
-        } else {
-            editSnippetContentInput.value = snippetData; // Legado: snippet é apenas string
-            editSnippetCommandInput.value = ""; // Limpar se não houver comando explícito
-        }
-
-        btnDeleteSnippet.classList.remove("hidden");
-        editProfCatSelect.disabled = true;
-        editCareLineSelect.disabled = true;
-        editSnippetTypeInput.disabled = true;
-        editSnippetContentInput.focus();
-    }
-
-    // Salvar snippet
-    editSnippetForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const profCat = editProfCatSelect.value === ADD_NEW_VALUE ? editNewProfCatInput.value.trim() : editProfCatSelect.value;
-        const careLine = editCareLineSelect.value === ADD_NEW_VALUE ? editNewCareLineInput.value.trim() : editCareLineSelect.value;
-        const snippetType = editSnippetTypeInput.value.trim();
-        const content = editSnippetContentInput.value.trim();
-        const command = editSnippetCommandInput.value.trim(); // Obter comando customizado
-
-        if (!profCat || !careLine || !snippetType || !content) {
-            alert("Todos os campos obrigatórios (Categoria, Linha de Cuidado, Tipo, Conteúdo) devem ser preenchidos.");
-            return;
-        }
-
-        // Atualiza a estrutura local primeiro
-        if (!currentSnippets[profCat]) currentSnippets[profCat] = {};
-        if (!currentSnippets[profCat][careLine]) currentSnippets[profCat][careLine] = {};
-
-        if (command) {
-            currentSnippets[profCat][careLine][snippetType] = { content, command };
-        } else {
-            currentSnippets[profCat][careLine][snippetType] = content;
-        }
-
-        try {
-            await sendMessage({ action: "saveSnippetsToEditor", snippets: currentSnippets });
-            alert("Snippet salvo com sucesso!");
-            // Atualiza a árvore e limpa/reseta o formulário
-            renderTreeView(profCat, careLine); // Passa o caminho para tentar expandir até ele
-            // Se era um novo snippet, seleciona-o após salvar
-            if (!selectedItemPath || selectedItemPath.profCat !== profCat || selectedItemPath.careLine !== careLine || selectedItemPath.snippetType !== snippetType) {
-                 selectSnippet(profCat, careLine, snippetType);
-            } else { // Se estava editando, mantém selecionado e os campos desabilitados
-                 selectSnippet(profCat, careLine, snippetType); 
-            }
-            // Atualiza os selects caso novas categorias/linhas tenham sido adicionadas
-            const currentProfCatVal = editProfCatSelect.value;
-            const currentCareLineVal = editCareLineSelect.value;
-            await populateProfCatSelect(currentProfCatVal === ADD_NEW_VALUE ? profCat : currentProfCatVal);
-            if (currentProfCatVal === ADD_NEW_VALUE || editProfCatSelect.value === profCat) {
-                await populateCareLineSelect(profCat, currentCareLineVal === ADD_NEW_VALUE ? careLine : currentCareLineVal);
-            }
-
-        } catch (error) {
-            console.error("Erro ao salvar snippet:", error);
-            alert("Falha ao salvar o snippet. Verifique o console para mais detalhes.");
-        }
-    });
-
-    // Excluir snippet
-    btnDeleteSnippet.addEventListener("click", async () => {
-        if (!selectedItemPath) {
-            alert("Nenhum snippet selecionado para excluir.");
-            return;
-        }
-
-        const { profCat, careLine, snippetType } = selectedItemPath;
-        if (!confirm(`Tem certeza que deseja excluir o snippet "${snippetType}" em "${profCat} > ${careLine}"?`)) {
-            return;
-        }
-
-        delete currentSnippets[profCat][careLine][snippetType];
-        if (Object.keys(currentSnippets[profCat][careLine]).length === 0) {
-            delete currentSnippets[profCat][careLine];
-        }
-        if (Object.keys(currentSnippets[profCat]).length === 0) {
-            delete currentSnippets[profCat];
-        }
-
-        try {
-            await sendMessage({ action: "saveSnippetsToEditor", snippets: currentSnippets });
-            alert("Snippet excluído com sucesso!");
-            const originalTreeState = { ...treeState };
-            await loadSnippets();
-            treeState = originalTreeState;
-            renderTreeView();
-            btnClearForm.click(); 
-        } catch (error) {
-            console.error("Erro ao excluir snippet:", error);
-            alert("Erro ao excluir snippet: " + error.message);
-        }
-    });
     
-    // Exportar JSON
-    btnExportJson.addEventListener("click", () => {
-        // Garante que currentSnippets está atualizado antes de exportar
-        // Se houver algo no formulário não salvo, não será exportado.
-        // Para ser mais robusto, poderia verificar se o formulário está "sujo".
-        const jsonData = JSON.stringify(currentSnippets, null, 4);
-        const blob = new Blob([jsonData], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "snippets.json";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        alert("Snippets exportados para snippets.json. Lembre-se que a sincronização com o GitHub pode sobrescrever as alterações locais se o JSON do GitHub for diferente.");
-    });
+    function clearAndPrepareFormForNew() {
+        selectedItemPath = null; // Indica que estamos criando um novo, não editando um existente
+        if(editSnippetForm) editSnippetForm.reset(); // Limpa todos os campos do formulário
+        
+        populateProfCatSelect(); // Popula categorias, mas não seleciona nenhuma
+        editNewProfCatInput.value = ""; 
+        editNewProfCatInput.style.display = "none";
+        
+        editCareLineSelect.innerHTML = '<option value="">Selecione uma Linha de Cuidado</option>';
+        editCareLineSelect.disabled = true;
+        editNewCareLineInput.value = "";
+        editNewCareLineInput.style.display = "none";
 
-    // Importar JSON
-    btnImportJson.addEventListener("click", () => {
-        fileImportJson.click(); 
-    });
+        editSnippetTypeInput.value = "";
+        editSnippetCommandInput.value = "";
+        editSnippetContentInput.value = "";
+        
+        if(btnDeleteSnippet) btnDeleteSnippet.classList.add("hidden");
+        handleFormDisplay(true); // Mostra o formulário para entrada
+        if(editProfCatSelect) editProfCatSelect.focus();
+        document.querySelectorAll(".tree-item.selected-item").forEach(el => el.classList.remove("selected-item"));
+    }
 
-    fileImportJson.addEventListener("change", async (event) => {
-        const file = event.target.files[0];
-        if (!file) return;
+    if(btnClearForm) {
+        btnClearForm.addEventListener("click", clearAndPrepareFormForNew);
+    }
 
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const importedSnippets = JSON.parse(e.target.result);
-                if (typeof importedSnippets !== 'object' || importedSnippets === null) {
-                    throw new Error("Arquivo JSON inválido ou não é um objeto.");
-                }
-                
-                if (!confirm("Isso substituirá todos os seus snippets atuais (incluindo os não salvos no formulário). Deseja continuar?")) {
-                    fileImportJson.value = ""; 
-                    return;
-                }
+    // TODO: Implementar btnSaveSnippet, btnDeleteSnippet, btnExportJson, btnImportJson
+    // Exemplo para btnSaveSnippet:
+    if (btnSaveSnippet) {
+        btnSaveSnippet.addEventListener("click", async () => {
+            let finalProfCat = editProfCatSelect.value === ADD_NEW_VALUE ? editNewProfCatInput.value.trim() : editProfCatSelect.value;
+            let finalCareLine = editCareLineSelect.value === ADD_NEW_VALUE ? editNewCareLineInput.value.trim() : editCareLineSelect.value;
+            const snippetType = editSnippetTypeInput.value.trim();
+            const snippetCommand = editSnippetCommandInput.value.trim();
+            const snippetContent = editSnippetContentInput.value.trim();
 
-                currentSnippets = importedSnippets; // Substitui os snippets atuais
-                await sendMessage({ action: "saveSnippetsToEditor", snippets: currentSnippets });
-                alert("Snippets importados com sucesso!");
-                treeState = {}; // Reseta o estado da árvore
-                await loadSnippets(); // Recarrega e renderiza
-                btnClearForm.click();
-            } catch (error) {
-                console.error("Erro ao importar JSON:", error);
-                alert("Erro ao importar JSON: " + error.message);
-            } finally {
-                fileImportJson.value = ""; 
+            if (!finalProfCat || !finalCareLine || !snippetType) {
+                alert("Categoria Profissional, Linha de Cuidado e Nome/Tipo do Snippet são obrigatórios.");
+                return;
             }
-        };
-        reader.readAsText(file);
-    });
+            if (!currentSnippets[finalProfCat]) {
+                currentSnippets[finalProfCat] = {};
+            }
+            if (!currentSnippets[finalProfCat][finalCareLine]) {
+                currentSnippets[finalProfCat][finalCareLine] = {};
+            }
+            currentSnippets[finalProfCat][finalCareLine][snippetType] = {
+                command: snippetCommand,
+                content: snippetContent
+            };
+
+            try {
+                await sendMessage({ action: "saveAllSnippets", payload: currentSnippets });
+                alert("Snippets salvos com sucesso!");
+                loadSnippets(); // Recarrega para refletir mudanças
+                // Após salvar, idealmente selecionar o item que foi salvo/editado
+                selectItem(`${finalProfCat}/${finalCareLine}/${snippetType}`);
+            } catch (error) {
+                alert("Erro ao salvar snippets: " + error.message);
+                console.error("Erro ao salvar snippets:", error);
+            }
+        });
+    }
+    // Para que saveAllSnippets funcione, adicione um handler no background.js:
+    // else if (msg.action === "saveAllSnippets") {
+    // chrome.storage.local.set({ [STORAGE_KEY]: msg.payload }, () => {
+    // if (chrome.runtime.lastError) { respond({ success: false, error: chrome.runtime.lastError.message }); return; }
+    // respond({ success: true });
+    // // Opcional: Chamar updateEnabledCareLinesOnSnippetsChange se a estrutura de snippets mudou significativamente
+    // });
+    // return true;
+    // }
+
 
     // Inicialização
     loadSnippets();
+    handleFormDisplay(false); // Garante que o formulário comece oculto
+    if(editNewProfCatInput) editNewProfCatInput.style.display = "none";
+    if(editNewCareLineInput) editNewCareLineInput.style.display = "none";
 });

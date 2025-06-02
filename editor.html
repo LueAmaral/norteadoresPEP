@@ -12,9 +12,7 @@
             width: 100%;
             padding: 8px;
             margin-bottom: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-sizing: border-box;
+            box-sizing: border-box; /* Adicionado para melhor controle de layout */
         }
         textarea { min-height: 150px; }
         button { padding: 10px 15px; margin-right: 10px; cursor: pointer; }
@@ -40,33 +38,39 @@
 
     <div class="columns">
         <div class="column">
-            <h2>Estrutura dos Snippets</h2>
-            <div id="snippetsTreeViewLoading">Carregando estrutura...</div>
-            <div id="snippetsTreeView"></div>
+            <h2>Estrutura de Snippets</h2>
+            <div id="snippetsTreeViewLoading" style="display: none;">Carregando snippets...</div>
+            <div id="snippetsTreeView">
+                <!-- A árvore será renderizada aqui pelo editor.js -->
+                <p>Nenhum snippet definido. Adicione um novo usando o formulário.</p>
+            </div>
         </div>
         <div class="column">
-            <h2>Editar Snippet Selecionado</h2>
+            <h2>Editar Snippet</h2>
             <form id="editSnippetForm">
-                <label for="editProfCatSelect">Categoria Profissional:</label>
-                <select id="editProfCatSelect"></select>
-                <input type="text" id="editNewProfCatInput" placeholder="Nova Categoria Profissional" class="hidden" style="margin-top: -5px; margin-bottom: 10px;">
+                <div id="formFieldsContainer" class="hidden"> <!-- Inicialmente oculto -->
+                    <label for="editProfCatSelect">Categoria Profissional:</label>
+                    <select id="editProfCatSelect"></select>
+                    <input type="text" id="editNewProfCatInput" placeholder="Ou digite uma nova categoria">
 
-                <label for="editCareLineSelect">Linha de Cuidado:</label>
-                <select id="editCareLineSelect"></select>
-                <input type="text" id="editNewCareLineInput" placeholder="Nova Linha de Cuidado" class="hidden" style="margin-top: -5px; margin-bottom: 10px;">
+                    <label for="editCareLineSelect">Linha de Cuidado:</label>
+                    <select id="editCareLineSelect"></select>
+                    <input type="text" id="editNewCareLineInput" placeholder="Ou digite uma nova linha de cuidado">
+                    
+                    <label for="editSnippetType">Nome/Tipo do Snippet:</label>
+                    <input type="text" id="editSnippetType" placeholder="Ex: Subjetivo, Anamnese Rápida">
 
-                <label for="editSnippetType">Tipo de Snippet (usado como comando se nenhum comando customizado for definido):</label>
-                <input type="text" id="editSnippetType" required>
+                    <label for="editSnippetCommand">Comando (opcional, sem '/'):</label>
+                    <input type="text" id="editSnippetCommand" placeholder="Ex: subj, anam">
 
-                <label for="editSnippetCommand">Comando Customizado (ex: "diagrapido", sem o "/"):</label>
-                <input type="text" id="editSnippetCommand" placeholder="Opcional. Ex: evomed, altauti">
+                    <label for="editSnippetContent">Conteúdo do Snippet:</label>
+                    <textarea id="editSnippetContent"></textarea>
 
-                <label for="editSnippetContent">Conteúdo do Snippet:</label>
-                <textarea id="editSnippetContent" required></textarea>
-
-                <button type="submit" id="btnSaveSnippet">Salvar Snippet</button>
-                <button type="button" id="btnDeleteSnippet" class="hidden">Excluir Snippet</button>
-                <button type="button" id="btnClearForm">Novo/Limpar</button>
+                    <button type="button" id="btnSaveSnippet">Salvar Snippet</button>
+                    <button type="button" id="btnDeleteSnippet" class="hidden">Excluir Snippet</button>
+                </div>
+                <p id="noSnippetSelectedMessage">Selecione um item na árvore para editar, ou clique em "Novo Snippet" para adicionar.</p>
+                <button type="button" id="btnClearForm">Novo Snippet</button> <!-- Movido para fora do formFieldsContainer para estar sempre visível -->
             </form>
         </div>
     </div>

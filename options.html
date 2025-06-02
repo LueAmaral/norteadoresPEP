@@ -77,6 +77,14 @@
     <div id="syncStatus"></div>
 
     <div class="container-section">
+        <h4>Sincronização Automática</h4>
+        <label style="font-weight: normal; display: flex; align-items: center;">
+            <input type="checkbox" id="syncEnabledCheckbox" style="margin-right: 8px;"> Habilitar sincronização automática com o GitHub (diariamente)
+        </label>
+        <div id="syncEnabledStatus" style="font-size: 0.9em; margin-top: 5px; color: green;"></div>
+    </div>
+
+    <div class="container-section">
         <h4>Modo de Inserção de Snippets</h4>
         <label>
             <input type="radio" name="insertionMode" value="button"> Inserir com Botão (📌 ao lado do campo de texto)
@@ -93,6 +101,11 @@
     <div class="container-section">
         <h4>Editor de Snippets</h4>
         <button id="openEditorBtn">Abrir Editor de Snippets</button>
+    </div>
+
+    <div class="container-section">
+        <h4>Página de Teste</h4>
+        <button id="openTestPageBtn">Abrir Página de Teste</button>
     </div>
 
     <script src="options.js"></script>

@@ -3,13 +3,15 @@
     "name": "Máscaras de Atendimento",
     "version": "1.0",
     "description": "Cole rapidamente máscaras de atendimento via atalho ou botão.",
+    "action": {
+        "default_title": "Máscaras de Atendimento"
+    },
     "permissions": [
         "storage",
         "scripting",
         "activeTab",
         "alarms",
-        "notifications",
-        "action"
+        "notifications"
     ],
     "host_permissions": [
         "<all_urls>"

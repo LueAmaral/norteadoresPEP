@@ -1,6 +1,8 @@
 const PROFESSIONAL_CATEGORY_KEY = "professionalCategory";
 const ENABLED_CARE_LINES_KEY = "enabledCareLines";
 const STORAGE_KEY = "snippets"; // Para buscar todas as categorias profissionais e linhas de cuidado
+const INSERTION_MODE_KEY = "insertionMode"; // Adicionada para consistência
+const SYNC_ENABLED_KEY = "syncEnabled"; // Chave para o estado da sincronização automática
 
 document.addEventListener("DOMContentLoaded", async () => {
     const profCatSelect = document.getElementById("professionalCategorySelect");
@@ -10,6 +12,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const openEditorBtn = document.getElementById("openEditorBtn");
     const insertionModeRadios = document.querySelectorAll("input[name='insertionMode']");
     const insertionModeStatusEl = document.getElementById("insertionModeStatus");
+    const openTestPageBtn = document.getElementById("openTestPageBtn");
+    const syncEnabledCheckbox = document.getElementById("syncEnabledCheckbox");
+    const syncEnabledStatusEl = document.getElementById("syncEnabledStatus");
 
     let allSnippetsData = {}; // Para armazenar os snippets carregados do storage
 
@@ -67,66 +72,58 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Carrega e exibe as linhas de cuidado para a categoria profissional selecionada
     async function loadCareLinesForSelectedProfCat() {
-        const selectedProfCat = profCatSelect.value;
-        careLinesContainer.innerHTML = ""; // Limpa o container
+        console.log("[OptionsJS] Iniciando loadCareLinesForSelectedProfCat");
+        const currentProfCat = profCatSelect.value;
+        careLinesContainer.innerHTML = ""; // Limpa as opções anteriores
 
-        if (!selectedProfCat) {
-            careLinesContainer.innerHTML = "<p>Selecione uma categoria profissional para ver as linhas de cuidado.</p>";
-            return;
-        }
-        if (!allSnippetsData || !allSnippetsData[selectedProfCat]) {
-            careLinesContainer.innerHTML = "<p>Nenhuma linha de cuidado definida para esta categoria no JSON de snippets.</p>";
-            return;
-        }
-
-        const careLinesInJSON = Object.keys(allSnippetsData[selectedProfCat]);
-        if (careLinesInJSON.length === 0) {
-            careLinesContainer.innerHTML = "<p>Nenhuma linha de cuidado encontrada para esta categoria.</p>";
+        if (!currentProfCat) {
+            console.log("[OptionsJS] Nenhuma categoria profissional selecionada.");
+            careLinesContainer.textContent = "Selecione uma categoria profissional para ver as linhas de cuidado.";
             return;
         }
 
-        try {
-            // Busca as linhas de cuidado habilitadas especificamente para esta categoria profissional
-            const result = await sendMessage({ action: "getEnabledCareLines" });
-            if (result.error) throw new Error(result.error);
+        if (!allSnippetsData || !allSnippetsData[currentProfCat]) {
+            console.log(`[OptionsJS] Dados de snippets não encontrados para a categoria: ${currentProfCat}`);
+            careLinesContainer.textContent = "Nenhuma linha de cuidado definida para esta categoria nos snippets carregados.";
+            return;
+        }
 
-            // Espera-se que result.enabledCareLines seja um objeto como { "Médico": ["Diabetes"], "Enfermagem": [] }
-            const enabledCareLinesForProfCat = (result.enabledCareLines && result.enabledCareLines[selectedProfCat]) 
-                                                ? result.enabledCareLines[selectedProfCat] 
-                                                : [];
+        const careLinesForCategory = Object.keys(allSnippetsData[currentProfCat]);
+        console.log(`[OptionsJS] Linhas de cuidado para ${currentProfCat}:`, careLinesForCategory);
+
+        const enabledCareLinesData = await sendMessage({ action: "getEnabledCareLines" });
+        console.log("[OptionsJS] enabledCareLinesData recebido do background:", enabledCareLinesData);
+
+        const enabledCareLinesForCurrentProfCat = (enabledCareLinesData && enabledCareLinesData[currentProfCat]) ? enabledCareLinesData[currentProfCat] : [];
+        console.log(`[OptionsJS] Linhas de cuidado habilitadas para ${currentProfCat}:`, enabledCareLinesForCurrentProfCat);
+
+
+        if (careLinesForCategory.length === 0) {
+            careLinesContainer.textContent = "Nenhuma linha de cuidado cadastrada para esta categoria.";
+            return;
+        }
+
+        careLinesForCategory.forEach(careLineName => {
+            const checkboxId = `careLine-${currentProfCat}-${careLineName.replace(/\s+/g, '-')}`; // ID único
+            const label = document.createElement("label");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.id = checkboxId;
+            checkbox.value = careLineName;
+            checkbox.name = "careLine";
             
-            // Verifica se enabledCareLinesForProfCat é de fato um array antes de usar .includes
-            if (!Array.isArray(enabledCareLinesForProfCat)) {
-                console.error("enabledCareLinesForProfCat não é um array:", enabledCareLinesForProfCat);
-                careLinesContainer.innerHTML = "<p>Erro ao carregar as configurações de linhas de cuidado (não é um array).</p>";
-                return;
-            }
+            // Verifica se a string exata está no array de habilitadas
+            checkbox.checked = enabledCareLinesForCurrentProfCat.includes(careLineName);
+            console.log(`[OptionsJS] Verificando ${careLineName}: Habilitado? ${checkbox.checked}`);
 
-            careLinesInJSON.forEach(careLine => {
-                const checkboxId = `careLine-${selectedProfCat}-${careLine.replace(/\s+/g, '-')}`;
-                const label = document.createElement("label");
-                label.htmlFor = checkboxId;
 
-                const checkbox = document.createElement("input");
-                checkbox.type = "checkbox";
-                checkbox.id = checkboxId;
-                checkbox.value = careLine;
-                checkbox.dataset.profCat = selectedProfCat; // Armazena a categoria profissional no dataset
-                // Verifica se a linha de cuidado está na lista de habilitadas para a categoria atual
-                checkbox.checked = enabledCareLinesForProfCat.includes(careLine);
-                
-                checkbox.addEventListener("change", updateEnabledCareLines);
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(` ${careLineName}`));
+            label.style.display = "block"; // Garante que cada checkbox fique em uma nova linha
+            careLinesContainer.appendChild(label);
 
-                label.appendChild(checkbox);
-                label.appendChild(document.createTextNode(careLine));
-                careLinesContainer.appendChild(label);
-                careLinesContainer.appendChild(document.createElement("br"));
-            });
-
-        } catch (error) {
-            console.error("Erro ao carregar linhas de cuidado habilitadas:", error);
-            careLinesContainer.innerHTML = `<p>Erro ao carregar linhas de cuidado: ${error.message}. Tente recarregar a extensão e a página de opções.</p>`;
-        }
+            checkbox.addEventListener("change", updateEnabledCareLines);
+        });
     }
 
     // Atualiza no storage as linhas de cuidado habilitadas para a categoria profissional atual
@@ -155,23 +152,25 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // --- Modo de Inserção ---
     async function loadInsertionMode() {
-        try {
-            const result = await sendMessage({ action: "getInsertionMode" });
-            const currentMode = result.mode || "both"; // Padrão para 'both'
+        console.log("[OptionsJS] Carregando modo de inserção.");
+        const data = await sendMessage({ action: "getInsertionMode" });
+        console.log("[OptionsJS] Modo de inserção recebido:", data);
+        if (data && data.mode) {
+            const currentMode = data.mode;
             insertionModeRadios.forEach(radio => {
-                if (radio.value === currentMode) {
-                    radio.checked = true;
-                }
+                radio.checked = (radio.value === currentMode);
             });
-        } catch (error) {
-            console.error("Erro ao carregar modo de inserção:", error);
-            insertionModeStatusEl.textContent = "Erro ao carregar modo.";
-            insertionModeStatusEl.style.color = "red";
+        } else {
+            console.warn("[OptionsJS] Modo de inserção não definido, usando padrão 'both'.");
+            insertionModeRadios.forEach(radio => {
+                radio.checked = (radio.value === "both");
+            });
         }
     }
 
     async function saveInsertionMode() {
         const selectedMode = document.querySelector("input[name='insertionMode']:checked").value;
+        console.log(`[OptionsJS] Salvando modo de inserção: ${selectedMode}`);
         try {
             await sendMessage({ action: "setInsertionMode", mode: selectedMode });
             insertionModeStatusEl.textContent = `Modo de inserção salvo: ${selectedMode}`;
@@ -182,6 +181,26 @@ document.addEventListener("DOMContentLoaded", async () => {
             insertionModeStatusEl.textContent = "Erro ao salvar modo.";
             insertionModeStatusEl.style.color = "red";
         }
+    }
+
+    // --- Controle de Sincronização Automática ---
+    async function loadSyncEnabledState() {
+        console.log("[OptionsJS] Carregando estado da sincronização automática.");
+        const data = await sendMessage({ action: "getSyncEnabled" }); // Ação a ser criada no background
+        console.log("[OptionsJS] Estado da sincronização recebido:", data);
+        if (data && typeof data.syncEnabled === 'boolean') {
+            syncEnabledCheckbox.checked = data.syncEnabled;
+        } else {
+            syncEnabledCheckbox.checked = true; // Padrão para habilitado se não definido
+        }
+    }
+
+    async function saveSyncEnabledState() {
+        const isEnabled = syncEnabledCheckbox.checked;
+        console.log(`[OptionsJS] Salvando estado da sincronização automática: ${isEnabled}`);
+        await sendMessage({ action: "setSyncEnabled", syncEnabled: isEnabled }); // Ação a ser criada no background
+        syncEnabledStatusEl.textContent = `Sincronização automática ${isEnabled ? "habilitada" : "desabilitada"}.`;
+        setTimeout(() => syncEnabledStatusEl.textContent = "", 3000);
     }
 
     insertionModeRadios.forEach(radio => {
@@ -223,13 +242,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
 
     // --- Inicialização ---
-    await loadProfessionalCategories(); // Carrega categorias primeiro
-    await loadInsertionMode(); // Depois carrega o modo de inserção
+    await loadProfessionalCategories(); // Isso agora também chama loadCareLinesForSelectedProfCat
+    await loadInsertionMode();
+    await loadSyncEnabledState(); // Carrega o estado da sincronização
 
     // Evento para o botão de abrir o editor
     if (openEditorBtn) {
         openEditorBtn.addEventListener("click", () => {
             chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
+        });
+    }
+
+    // Evento para o botão de abrir a página de teste
+    if (openTestPageBtn) {
+        openTestPageBtn.addEventListener("click", () => {
+            chrome.tabs.create({ url: "https://pt.anotepad.com/" });
         });
     }
 });

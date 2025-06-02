@@ -1,86 +1,140 @@
+console.log("[ContentJS] Script injetado em:", window.location.href); // Log para depuração
 let targetElement = null;
 let customMenu = null;
 let currentInsertionMode = "both"; // Padrão inicial
 let pinButtons = []; // Array para rastrear os botões 📌
 
+const INSERTION_MODE_KEY = "insertionMode"; // Definir a constante aqui
+
 async function showCustomMenu(textareaElement) {
     targetElement = textareaElement;
+    console.log("[ContentJS - showCustomMenu] Iniciando para o elemento:", textareaElement);
 
     if (customMenu) {
+        console.log("[ContentJS - showCustomMenu] Removendo menu customizado existente.");
         customMenu.remove();
-        customMenu = null;
+        document.removeEventListener("click", handleClickOutsideMenu, true);
     }
 
     customMenu = document.createElement("div");
+    customMenu.id = "snippetMasterExtensionMenu";
+    console.log("[ContentJS - showCustomMenu] Elemento de menu criado:", customMenu);
+
     customMenu.style.position = "absolute";
+    customMenu.style.backgroundColor = "white";
     customMenu.style.border = "1px solid #ccc";
-    customMenu.style.background = "white";
     customMenu.style.padding = "10px";
-    customMenu.style.zIndex = "10000"; 
-    customMenu.style.boxShadow = "0px 2px 5px rgba(0,0,0,0.2)";
-    customMenu.style.fontFamily = "Arial, sans-serif";
-    customMenu.style.fontSize = "14px";
+    customMenu.style.zIndex = "2147483647"; // Z-index muito alto para tentar sobrepor outros elementos
+    customMenu.style.color = "black"; // Cor do texto preta
+    customMenu.style.maxHeight = "250px"; // Altura máxima aumentada
+    customMenu.style.minWidth = "200px"; // Largura mínima
+    customMenu.style.overflowY = "auto"; // Rolagem vertical se necessário
+    customMenu.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)"; // Sombra para destaque
+    customMenu.style.fontSize = "14px"; // Tamanho de fonte base
+    customMenu.style.fontFamily = "Arial, sans-serif"; // Fonte padrão
 
-    const rect = textareaElement.getBoundingClientRect();
-    let topPosition = window.scrollY + rect.bottom + 5;
-    let leftPosition = window.scrollX + rect.left;
-    customMenu.style.top = `${topPosition}px`;
-    customMenu.style.left = `${leftPosition}px`;
-    customMenu.style.minWidth = `280px`; 
-    customMenu.style.maxWidth = `450px`; 
+    const textareaRect = textareaElement.getBoundingClientRect();
+    const menuHeight = 250; // Altura máxima definida para o menu
+    const menuWidth = 200; // Largura mínima definida para o menu
 
-    const title = document.createElement("h4");
-    title.textContent = "Selecionar Máscara";
-    title.style.margin = "0 0 10px 0";
-    customMenu.appendChild(title);
+    // Tenta posicionar no canto superior direito da textarea
+    // Ajusta se sair da tela
+    let top = textareaRect.top + window.scrollY;
+    let left = textareaRect.right + window.scrollX - menuWidth; // Assume menuWidth como largura inicial
+
+    // Ajuste para não sair da viewport à esquerda
+    if (left < 0) left = 5;
+    // Ajuste para não sair da viewport à direita (considerando uma margem)
+    if (left + menuWidth > window.innerWidth - 5) {
+        left = window.innerWidth - menuWidth - 5;
+    }
+    // Ajuste para não sair da viewport no topo
+    if (top < 0) top = 5;
+    // Ajuste para não sair da viewport abaixo (considerando uma margem)
+    // Se o menu for muito alto, pode precisar de mais lógica aqui
+    if (top + menuHeight > window.innerHeight - 5 && textareaRect.top > menuHeight) {
+        // Se há espaço acima da textarea, posiciona acima
+        top = textareaRect.top + window.scrollY - menuHeight - 5;
+    } else if (top + menuHeight > window.innerHeight - 5) {
+        // Senão, apenas limita ao final da tela
+        top = window.innerHeight - menuHeight - 5;
+    }
+
+    customMenu.style.top = `${top}px`;
+    customMenu.style.left = `${left}px`;
+
+    console.log(`[ContentJS - showCustomMenu] Posicionando menu em: top=${top}px, left=${left}px`);
+    console.log("[ContentJS - showCustomMenu] Enviando mensagem getSnippetsDataForInPageMenu ao background.");
 
     chrome.runtime.sendMessage({ action: "getSnippetsDataForInPageMenu" }, (response) => {
-        if (chrome.runtime.lastError || (response && response.error)) {
-            console.error("Erro ao buscar dados para o menu:", chrome.runtime.lastError || response.error);
-            customMenu.innerHTML = `<p>Erro ao carregar snippets: ${response.error || 'Verifique as configurações e sincronize.'}</p>`;
+        console.log("[ContentJS - showCustomMenu] Resposta recebida de getSnippetsDataForInPageMenu:", response);
+        if (chrome.runtime.lastError) {
+            console.error("[ContentJS - showCustomMenu] Erro ao buscar dados para o menu:", chrome.runtime.lastError.message);
+            customMenu.textContent = "Erro ao carregar snippets.";
             document.body.appendChild(customMenu);
-            setTimeout(() => { document.addEventListener("click", handleClickOutsideMenu, true); }, 0);
+            document.addEventListener("click", handleClickOutsideMenu, true);
             return;
         }
 
+        if (response && response.error) {
+            console.error("[ContentJS - showCustomMenu] Erro retornado pelo background:", response.error);
+            customMenu.textContent = response.error;
+            document.body.appendChild(customMenu);
+            document.addEventListener("click", handleClickOutsideMenu, true);
+            return;
+        }
+
+        if (!response) {
+            console.error("[ContentJS - showCustomMenu] Resposta inválida ou vazia do background.");
+            customMenu.textContent = "Falha ao carregar dados (resposta inválida).";
+            document.body.appendChild(customMenu);
+            document.addEventListener("click", handleClickOutsideMenu, true);
+            return;
+        }
+
+        console.log("[ContentJS - showCustomMenu] Dados recebidos para o menu:", response);
         const { snippetsForProfCat, enabledCareLinesForProfCat, lastSelectedCareLineForProfCat } = response;
 
-        if (Object.keys(snippetsForProfCat || {}).length === 0) {
-            customMenu.innerHTML = "<p>Nenhum snippet encontrado para sua categoria profissional. Verifique as configurações.</p>";
-            document.body.appendChild(customMenu);
-            setTimeout(() => { document.addEventListener("click", handleClickOutsideMenu, true); }, 0);
-            return;
-        }
-
         if (!enabledCareLinesForProfCat || enabledCareLinesForProfCat.length === 0) {
-            customMenu.innerHTML = "<p>Nenhuma linha de cuidado habilitada para sua categoria. Verifique as Opções da extensão.</p>";
+            console.log("[ContentJS - showCustomMenu] Nenhuma linha de cuidado habilitada.");
+            customMenu.textContent = "Nenhuma linha de cuidado habilitada para sua categoria profissional. Verifique as Opções.";
             document.body.appendChild(customMenu);
-            setTimeout(() => { document.addEventListener("click", handleClickOutsideMenu, true); }, 0);
+            document.addEventListener("click", handleClickOutsideMenu, true);
             return;
         }
+        
+        console.log("[ContentJS - showCustomMenu] Linhas de cuidado habilitadas:", enabledCareLinesForProfCat);
+        console.log("[ContentJS - showCustomMenu] Última linha de cuidado selecionada:", lastSelectedCareLineForProfCat);
+
+
+        // Seletor para Linhas de Cuidado
+        const careLineSelectContainer = document.createElement("div");
+        careLineSelectContainer.style.marginBottom = "10px";
+        customMenu.appendChild(careLineSelectContainer);
 
         const careLineLabel = document.createElement("label");
         careLineLabel.textContent = "Linha de Cuidado: ";
         careLineLabel.style.display = "block";
         careLineLabel.style.marginBottom = "5px";
-        customMenu.appendChild(careLineLabel);
+        careLineSelectContainer.appendChild(careLineLabel);
 
         const careLineSelect = document.createElement("select");
         careLineSelect.style.width = "100%";
         careLineSelect.style.marginBottom = "10px";
-        customMenu.appendChild(careLineSelect);
+        careLineSelectContainer.appendChild(careLineSelect);
 
         const snippetTypesContainer = document.createElement("div");
         snippetTypesContainer.style.marginTop = "10px";
         customMenu.appendChild(snippetTypesContainer);
 
-        enabledCareLinesForProfCat.forEach(careLine => {
-            if (snippetsForProfCat[careLine]) {
-                const option = document.createElement("option");
-                option.value = careLine;
-                option.textContent = careLine;
-                careLineSelect.appendChild(option);
+        enabledCareLinesForProfCat.forEach(careLineName => {
+            if (typeof careLineName !== 'string') {
+                console.warn("[ContentJS - showCustomMenu] Item em enabledCareLinesForProfCat não é uma string:", careLineName);
             }
+            const option = document.createElement("option");
+            option.value = String(careLineName); // Garante que seja string
+            option.textContent = String(careLineName); // Garante que seja string
+            careLineSelect.appendChild(option); // CORRIGIDO: de selectCareLine para careLineSelect
         });
 
         if (careLineSelect.options.length === 0) {
@@ -104,62 +158,99 @@ async function showCustomMenu(textareaElement) {
             }
 
             const list = document.createElement("ul");
-            list.style.listStyle = "none";
-            list.style.padding = "0";
-            list.style.margin = "0";
-            list.style.maxHeight = "200px";
+            list.style.listStyleType = "none";
+            list.style.paddingLeft = "0";
+            list.style.maxHeight = "150px"; // Altura máxima para a lista de snippets
             list.style.overflowY = "auto";
-            list.style.border = "1px solid #eee";
 
-            Object.entries(snippetTypes).forEach(([typeName, typeContent]) => {
-                const li = document.createElement("li");
-                li.textContent = typeName;
-                li.style.padding = "8px 10px";
-                li.style.borderBottom = "1px solid #f0f0f0";
-                li.style.cursor = "pointer";
-                li.addEventListener("mouseenter", () => li.style.backgroundColor = "#f9f9f9");
-                li.addEventListener("mouseleave", () => li.style.backgroundColor = "white");
-                li.addEventListener("click", (e) => {
-                    e.stopPropagation(); 
-                    pasteSnippetIntoTextarea(typeContent);
-                    if (customMenu) customMenu.remove();
-                    document.removeEventListener("click", handleClickOutsideMenu, true);
+            function renderSnippetList(selectedCareLine) {
+                list.innerHTML = ""; // Limpa snippets anteriores
+                console.log(`[ContentJS - showCustomMenu] Renderizando snippets para a linha de cuidado: ${selectedCareLine}`);
+
+                const snippetsInCategory = snippetsForProfCat && snippetsForProfCat[selectedCareLine] ? snippetsForProfCat[selectedCareLine] : {};
+                const snippetKeys = Object.keys(snippetsInCategory);
+                console.log(`[ContentJS - showCustomMenu] Snippets encontrados para ${selectedCareLine}:`, snippetKeys);
+
+                if (snippetKeys.length === 0) {
+                    const li = document.createElement("li");
+                    li.textContent = "Nenhum snippet para esta linha de cuidado.";
+                    li.style.color = "#777";
+                    list.appendChild(li);
+                    return;
+                }
+
+                snippetKeys.forEach(key => {
+                    const snippet = snippetsInCategory[key];
+                    const li = document.createElement("li");
+                    li.textContent = key; // Ou snippet.name se você tiver um nome
+                    li.style.padding = "8px";
+                    li.style.borderBottom = "1px solid #eee";
+                    li.style.cursor = "pointer";
+                    li.onmouseover = () => { li.style.backgroundColor = "#f0f0f0"; };
+                    li.onmouseout = () => { li.style.backgroundColor = "transparent"; };
+                    li.addEventListener("click", () => {
+                        console.log(`[ContentJS - showCustomMenu] Snippet '${key}' clicado. Objeto/String snippet completo:`, snippet); 
+                        // Se 'snippet' já for a string de conteúdo, snippet.content será undefined.
+                        // Vamos assumir que 'snippet' é a própria string de conteúdo.
+                        pasteSnippetIntoTextarea(snippet); // Alterado de snippet.content para snippet
+                        customMenu.remove();
+                        document.removeEventListener("click", handleClickOutsideMenu, true);
+                    });
+                    list.appendChild(li);
                 });
-                list.appendChild(li);
+            }
+
+            careLineSelect.addEventListener("change", (e) => { // CORRIGIDO: de selectCareLine para careLineSelect
+                const newSelectedCareLine = e.target.value;
+                console.log(`[ContentJS - showCustomMenu] Linha de cuidado alterada para: ${newSelectedCareLine}`);
+                renderSnippetList(newSelectedCareLine);
+                // Salva a última linha de cuidado selecionada para esta categoria profissional
+                chrome.runtime.sendMessage({ 
+                    action: "setLastSelectedCareLine", 
+                    careLine: newSelectedCareLine 
+                }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        console.error("[ContentJS - showCustomMenu] Erro ao salvar última linha de cuidado:", chrome.runtime.lastError.message);
+                    } else if (response && response.success) {
+                        console.log("[ContentJS - showCustomMenu] Última linha de cuidado salva com sucesso.");
+                    } else {
+                        console.warn("[ContentJS - showCustomMenu] Falha ao salvar última linha de cuidado, resposta:", response);
+                    }
+                });
             });
-            if (list.lastChild) list.lastChild.style.borderBottom = "none";
-            snippetTypesContainer.appendChild(list);
+
+            // Renderiza inicialmente com a última selecionada ou a primeira da lista
+            let initialCareLineToRender = lastSelectedCareLineForProfCat && enabledCareLinesForProfCat.includes(lastSelectedCareLineForProfCat) 
+                                        ? lastSelectedCareLineForProfCat 
+                                        : enabledCareLinesForProfCat[0];
+            
+            if (initialCareLineToRender) {
+                careLineSelect.value = initialCareLineToRender; // CORRIGIDO: de selectCareLine para careLineSelect
+                renderSnippetList(initialCareLineToRender);
+            } else {
+                console.warn("[ContentJS - showCustomMenu] Nenhuma linha de cuidado inicial para renderizar.");
+                list.textContent = "Nenhuma linha de cuidado disponível para seleção.";
+            }
+            
+            customMenu.appendChild(careLineSelectContainer);
+            customMenu.appendChild(list);
+
+            console.log("[ContentJS - showCustomMenu] Adicionando menu ao body e listener de clique externo.");
+            document.body.appendChild(customMenu);
+            document.addEventListener("click", handleClickOutsideMenu, true);
+            console.log("[ContentJS - showCustomMenu] Menu deveria estar visível agora.");
         }
 
-        careLineSelect.addEventListener("change", () => {
-            const selectedCareLineValue = careLineSelect.value;
-            renderSnippetTypes(selectedCareLineValue);
-            chrome.runtime.sendMessage({
-                action: "setLastSelectedCareLine",
-                careLine: selectedCareLineValue
-            });
-        });
+        renderSnippetTypes(careLineSelect.value);
 
-        let careLineToRenderInitially = null;
-        if (lastSelectedCareLineForProfCat && enabledCareLinesForProfCat.includes(lastSelectedCareLineForProfCat) && snippetsForProfCat[lastSelectedCareLineForProfCat]) {
-            careLineSelect.value = lastSelectedCareLineForProfCat;
-            careLineToRenderInitially = lastSelectedCareLineForProfCat;
-        } else if (careLineSelect.options.length > 0) {
-            careLineSelect.selectedIndex = 0;
-            careLineToRenderInitially = careLineSelect.value;
-            chrome.runtime.sendMessage({ action: "setLastSelectedCareLine", careLine: careLineToRenderInitially });
-        }
-
-        if (careLineToRenderInitially) {
-            renderSnippetTypes(careLineToRenderInitially);
-        } else {
-            snippetTypesContainer.innerHTML = "<p>Nenhuma linha de cuidado disponível ou selecionada.</p>";
-        }
+        // customMenu.appendChild(careLineSelectContainer); // Já adicionado dentro de renderSnippetTypes
+        // customMenu.appendChild(snippetTypesContainer); // Já adicionado dentro de renderSnippetTypes
 
         document.body.appendChild(customMenu);
         setTimeout(() => {
             document.addEventListener("click", handleClickOutsideMenu, true);
         }, 0);
+        console.log("[ContentJS - showCustomMenu] Menu deveria estar visível agora após correções.");
     });
 }
 
@@ -191,79 +282,145 @@ function pasteSnippetIntoTextarea(content) {
 
 // Insere o botão ao lado de cada textarea
 function injectButtons() {
-    if (!currentInsertionMode.includes("button")) {
-        removeAllPinButtons(); // Remove botões se o modo não incluir "button"
+    if (currentInsertionMode === "command") {
+        removeAllPinButtons();
         return;
     }
+    // console.log("[ContentJS] Tentando injetar botões pin.");
 
-    const textareas = document.querySelectorAll("textarea:not([data-pin-injected='true'])");
-    textareas.forEach((el) => {
-        // Verifica se já existe um botão para este textarea
-        let existingButton = el.previousElementSibling;
-        if (existingButton && existingButton.classList && existingButton.classList.contains("snippet-pin-button")) {
-            el.dataset.pinInjected = "true"; // Marca como já injetado se o botão já existe
-            if (!pinButtons.includes(existingButton)) pinButtons.push(existingButton);
+    const textareas = document.querySelectorAll('textarea:not([data-pin-injected="true"])');
+    // console.log(`[ContentJS] Textareas encontradas para injeção: ${textareas.length}`);
+
+    textareas.forEach((textarea) => {
+        if ((textarea.offsetWidth === 0 && textarea.offsetHeight === 0) || getComputedStyle(textarea).display === 'none') {
+            // console.log("[ContentJS] Ignorando textarea oculta, sem dimensões ou display:none:", textarea);
             return; 
         }
 
-        const button = document.createElement("button");
-        button.textContent = "📌";
-        button.classList.add("snippet-pin-button"); // Adiciona uma classe para identificação
-        button.style.position = "absolute";
-        button.style.zIndex = "9999";
-        button.style.cursor = "pointer";
-        button.style.backgroundColor = "#f0f0f0";
-        button.style.border = "1px solid #ccc";
-        button.style.borderRadius = "4px";
-        button.style.padding = "2px 5px";
-        button.style.fontSize = "14px";
-        button.style.lineHeight = "1";
-        button.style.marginLeft = "-25px"; // Ajuste para posicionar ao lado
-        button.style.marginTop = "5px";
+        textarea.setAttribute('data-pin-injected', 'true');
+        // console.log("[ContentJS] Injetando pin para textarea:", textarea);
 
-        // Posicionamento relativo ao textarea
-        el.style.position = "relative"; // Garante que o textarea seja o contexto de posicionamento
-        // Insere o botão *antes* do textarea no DOM para facilitar o posicionamento e evitar que ele cubra o conteúdo do textarea
-        el.parentNode.insertBefore(button, el);
-        positionPinButton(button, el);
+        const button = document.createElement("button");
+        button.innerHTML = "📌";
+        button.classList.add("snippet-pin-button");
+        button.style.position = "absolute";
+        button.style.zIndex = "2147483640"; 
+        button.style.cursor = "pointer";
+        button.style.background = "transparent";
+        button.style.border = "none";
+        button.style.padding = "2px";
+        button.style.fontSize = "16px";
+        button.style.width = "24px"; 
+        button.style.height = "24px";
+        button.style.display = "flex"; 
+        button.style.alignItems = "center";
+        button.style.justifyContent = "center";
+        button.setAttribute('aria-label', 'Inserir snippet');
+        button.setAttribute('title', 'Inserir snippet');
+
+        const parent = textarea.offsetParent || document.body;
+        if (parent !== document.body && getComputedStyle(parent).position === 'static') {
+            // console.log("[ContentJS] Definindo position:relative para o offsetParent da textarea:", parent);
+            parent.style.position = 'relative';
+        }
+        parent.appendChild(button);
         
-        button.addEventListener("click", (e) => {
-            e.stopPropagation(); // Evita que o clique no botão dispare outros eventos
-            showCustomMenu(el);
+        positionPinButton(button, textarea);
+
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            console.log("[ContentJS - injectButtons] Botão Pin clicado! Target Textarea:", textarea);
+            showCustomMenu(textarea); // Chama a função para mostrar o menu
         });
-        el.dataset.pinInjected = "true"; // Marca que o botão foi injetado
-        pinButtons.push(button); // Adiciona o botão ao array de rastreamento
+
+        const resizeObserver = new ResizeObserver(() => {
+            // console.log("[ContentJS] ResizeObserver acionado para textarea:", textarea);
+            positionPinButton(button, textarea);
+        });
+        resizeObserver.observe(textarea);
+        
+        // Armazena o observer junto com o botão e textarea para poder desconectá-lo depois
+        pinButtons.push({ button, textarea, observer: resizeObserver }); 
     });
+    // console.log(`[ContentJS] Total de botões pin rastreados: ${pinButtons.length}`);
 }
 
 function positionPinButton(button, textarea) {
-    // Tenta posicionar o botão no canto superior direito do textarea
-    // Esta função pode precisar de ajustes dependendo do layout da página alvo
-    const rect = textarea.getBoundingClientRect();
-    const parentRect = textarea.offsetParent ? textarea.offsetParent.getBoundingClientRect() : { top: 0, left: 0 };
+    if (!textarea.offsetParent || textarea.offsetWidth === 0 || textarea.offsetHeight === 0 || getComputedStyle(textarea).display === 'none') {
+        button.style.display = 'none';
+        return;
+    }
+    button.style.display = 'flex';
 
-    // Posicionamento inicial simples. Pode ser melhorado.
-    button.style.top = `${textarea.offsetTop + 5}px`;
-    button.style.left = `${textarea.offsetLeft + textarea.offsetWidth - 25}px`; 
+    // O botão é filho do textarea.offsetParent.
+    // textarea.offsetTop e textarea.offsetLeft são as coordenadas da textarea relativas ao seu offsetParent.
+    // Posiciona o botão no canto superior direito da textarea, mas ligeiramente para fora dela.
+    let top = textarea.offsetTop;
+    let left = textarea.offsetLeft + textarea.offsetWidth + 2; // 2px à direita da textarea
+
+    // Ajustes simples para evitar que o botão saia completamente da viewport se o offsetParent for o body.
+    // Uma solução mais robusta poderia envolver verificar os limites do offsetParent.
+    const buttonHeight = button.offsetHeight || 24;
+    const buttonWidth = button.offsetWidth || 24;
+
+    // Se o pai for o corpo do documento, podemos tentar ajustar com base no scroll e tamanho da janela.
+    if (button.offsetParent === document.body) {
+        const docRect = document.documentElement.getBoundingClientRect();
+        const maxTop = window.scrollY + window.innerHeight - buttonHeight - 5; // 5px de margem inferior
+        const maxLeft = window.scrollX + window.innerWidth - buttonWidth - 5; // 5px de margem direita
+        
+        top = Math.max(window.scrollY + 5, Math.min(top, maxTop));
+        left = Math.max(window.scrollX + 5, Math.min(left, maxLeft));
+    } 
+    // Para offsetParents que não são o body, esses ajustes podem ser mais complexos
+    // e podem depender do overflow e tamanho do offsetParent.
+    // Por enquanto, a lógica acima é uma simplificação.
+
+    button.style.top = `${top}px`;
+    button.style.left = `${left}px`;
 }
 
 function removeAllPinButtons() {
-    pinButtons.forEach(button => {
-        if (button.parentNode) {
-            button.parentNode.removeChild(button);
+    // console.log("[ContentJS] Removendo todos os botões pin.");
+    pinButtons.forEach(({ button, textarea, observer }) => { // Adicionado observer aqui
+        if (observer) { // Checa se o observer existe
+            observer.disconnect();
+            // console.log("[ContentJS] ResizeObserver desconectado para textarea:", textarea);
+        }
+        if (button.parentElement) {
+            button.parentElement.removeChild(button);
+        }
+        if (textarea) { // Checa se textarea existe
+            textarea.removeAttribute('data-pin-injected');
         }
     });
     pinButtons = []; // Limpa o array
-    // Remove o atributo data-pin-injected para que os botões possam ser reinjetados se necessário
-    document.querySelectorAll("textarea[data-pin-injected='true']").forEach(el => {
-        el.removeAttribute("data-pin-injected");
-    });
 }
 
 // Observador para injetar botões em textareas que aparecem dinamicamente
-const observer = new MutationObserver(() => {
+const observer = new MutationObserver((mutationsList) => {
     if (currentInsertionMode.includes("button")) {
-        injectButtons();
+        // Otimização: verificar se as mutações realmente adicionaram elementos relevantes
+        for (const mutation of mutationsList) {
+            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                let needsInject = false;
+                mutation.addedNodes.forEach(node => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        if (node.matches && node.matches("textarea, div[contenteditable='true'], input[type='text']")) {
+                            needsInject = true;
+                        } else if (node.querySelector && node.querySelector("textarea, div[contenteditable='true'], input[type='text']")) {
+                            needsInject = true;
+                        }
+                    }
+                });
+                if (needsInject) {
+                    // console.log("[ContentJS] Mutação detectada (nós adicionados), chamando injectButtons.");
+                    injectButtons();
+                    break; 
+                }
+            }
+        }
     }
 });
 
@@ -298,83 +455,49 @@ function handleTextInput(event) {
 
     const currentText = el.value || el.textContent; 
 
-    if (commandActive) {
-        if (key === COMMAND_ACTIVATION_KEY || key === "Enter") {
-            event.preventDefault(); 
-            const commandToExecute = currentCommand;
-            resetCommandState();
-            
-            chrome.runtime.sendMessage({ action: "getSnippetByCommandName", command: commandToExecute }, (response) => {
-                if (chrome.runtime.lastError) {
-                    console.error("Erro ao buscar snippet por comando:", chrome.runtime.lastError.message);
-                    insertTextAtCursor(el, `${COMMAND_TRIGGER_CHAR}${commandToExecute}${key === "Enter" ? "" : key}`);
-                    return;
-                }
-                if (response && response.found && response.content) {
-                    const textToRemove = `${COMMAND_TRIGGER_CHAR}${commandToExecute}`;
-                    
-                    if (el.value !== undefined) { 
-                        const cursorPos = el.selectionStart;
-                        const textBefore = el.value.substring(0, cursorPos - textToRemove.length);
-                        const textAfter = el.value.substring(cursorPos);
-                        el.value = textBefore + response.content + textAfter;
-                        el.selectionStart = el.selectionEnd = (textBefore + response.content).length;
-                    } else if (el.isContentEditable) { 
-                        const selection = window.getSelection();
-                        const range = selection.getRangeAt(0);
-                        range.setStart(range.startContainer, range.startOffset - textToRemove.length);
-                        range.deleteContents();
-                        range.insertNode(document.createTextNode(response.content));
-                        range.collapse(false); 
-                    }
-                    targetElement = el; 
-                } else {
-                    insertTextAtCursor(el, `${COMMAND_TRIGGER_CHAR}${commandToExecute}${key === "Enter" ? "" : key}`);
-                }
-            });
-
-        } else if (key === "Escape" || key.startsWith("Arrow") || (event.ctrlKey || event.metaKey)) {
-            resetCommandState();
-        } else if (key === "Backspace") {
-            if (currentCommand.length > 0) {
-                currentCommand = currentCommand.slice(0, -1);
-            } else {
-                resetCommandState(); 
-            }
-        } else if (key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) { 
-            currentCommand += key;
-            event.preventDefault(); 
-        } else {
-        }
-    } else if (key === COMMAND_TRIGGER_CHAR) {
-        const cursorPos = el.selectionStart !== undefined ? el.selectionStart : window.getSelection().getRangeAt(0).startOffset;
-        const charBefore = currentText[cursorPos-1];
-        if (cursorPos === 0 || charBefore === undefined || /\s|[\.,;\(\)]/.test(charBefore)) {
+    if (event.type === "keydown") {
+        if (key === COMMAND_TRIGGER_CHAR) {
+            currentCommand = COMMAND_TRIGGER_CHAR;
             commandActive = true;
-            currentCommand = "";
-        } 
+        } else if (commandActive && key.length === 1 && /[\w\d_]/.test(key)) {
+            currentCommand += key;
+        } else if (commandActive && (key === " " || key === "Enter")) {
+            if (currentCommand.length > 1) {
+                const commandName = currentCommand.slice(1).toLowerCase();
+                chrome.runtime.sendMessage({ action: "getSnippetByCommandName", command: commandName }, (response) => {
+                    if (response && response.content) {
+                        insertTextAtCursor(el, response.content);
+                        event.preventDefault();
+                    }
+                });
+            }
+            resetCommandState();
+        } else {
+            resetCommandState();
+        }
     }
 }
 
 function resetCommandState() {
-    commandActive = false;
     currentCommand = "";
+    commandActive = false;
 }
 
 function insertTextAtCursor(el, text) {
-    if (el.value !== undefined) {
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
         const start = el.selectionStart;
         const end = el.selectionEnd;
-        el.value = el.value.substring(0, start) + text + el.value.substring(end);
+        const value = el.value;
+        el.value = value.substring(0, start) + text + value.substring(end);
         el.selectionStart = el.selectionEnd = start + text.length;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
     } else if (el.isContentEditable) {
-        const selection = window.getSelection();
-        const range = selection.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(document.createTextNode(text));
-        range.collapse(false);
+        document.execCommand("insertText", false, text);
     }
 }
+
+// Substituir o listener de input por keydown
+window.addEventListener("keydown", handleTextInput, true);
 
 // --- Controle de Modo de Inserção ---
 function applyInsertionMode(mode) {
@@ -399,18 +522,47 @@ function applyInsertionMode(mode) {
 
 // Carrega o modo de inserção inicial e ouve por mudanças
 chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
-    if (response && response.mode) {
-        applyInsertionMode(response.mode);
-    } else {
-        applyInsertionMode("both"); // Padrão se nada for encontrado
+    let mode = response && response.mode ? response.mode : (typeof response === 'string' ? response : "both");
+    console.log("[ContentJS] Modo de inserção inicial recebido:", mode);
+    applyInsertionMode(mode); 
+    if (currentInsertionMode.includes("button")) {
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 });
 
 chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === "local" && changes.insertionMode) {
-        applyInsertionMode(changes.insertionMode.newValue);
+    if (namespace === "local" && changes[INSERTION_MODE_KEY]) {
+        let newMode = changes[INSERTION_MODE_KEY].newValue;
+        console.log("[ContentJS] Mudança no modo de inserção detectada:", newMode);
+        const oldModeIncludesButton = currentInsertionMode.includes("button");
+        applyInsertionMode(newMode); 
+        
+        const newModeIncludesButton = currentInsertionMode.includes("button");
+
+        if (newModeIncludesButton && !oldModeIncludesButton) {
+            console.log("[ContentJS] Ativando MutationObserver.");
+            injectButtons(); // Garante que os botões sejam injetados imediatamente
+            observer.observe(document.body, { childList: true, subtree: true });
+        } else if (!newModeIncludesButton && oldModeIncludesButton) {
+            console.log("[ContentJS] Desativando MutationObserver.");
+            observer.disconnect();
+            removeAllPinButtons(); // Remove os botões se o modo for desativado
+        }
     }
+    // ... outros listeners de onChanged ...
 });
 
-// Inicializa a injeção de botões (se aplicável) e observador de mutação
-// A chamada inicial a injectButtons e observer.observe é agora feita dentro de applyInsertionMode
+// Adicionar um listener global de scroll e resize para reposicionar todos os botões
+// Isso é um pouco "força bruta", mas ajuda a manter os botões no lugar.
+// Pode ser otimizado com um debounce/throttle.
+function repositionAllPins() {
+    if (currentInsertionMode.includes("button")) {
+        pinButtons.forEach(pb => {
+            if (document.body.contains(pb.textarea) && document.body.contains(pb.button)) {
+                positionPinButton(pb.button, pb.textarea);
+            }
+        });
+    }
+}
+window.addEventListener('scroll', repositionAllPins, true);
+window.addEventListener('resize', repositionAllPins);
