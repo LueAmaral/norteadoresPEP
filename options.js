@@ -68,39 +68,64 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Carrega e exibe as linhas de cuidado para a categoria profissional selecionada
     async function loadCareLinesForSelectedProfCat() {
         const selectedProfCat = profCatSelect.value;
-        careLinesContainer.innerHTML = "";
+        careLinesContainer.innerHTML = ""; // Limpa o container
 
-        if (!selectedProfCat || !allSnippetsData[selectedProfCat]) {
-            careLinesContainer.innerHTML = selectedProfCat ? "<p>Nenhuma linha de cuidado definida para esta categoria no JSON.</p>" : "<p>Selecione uma categoria profissional.</p>";
+        if (!selectedProfCat) {
+            careLinesContainer.innerHTML = "<p>Selecione uma categoria profissional para ver as linhas de cuidado.</p>";
+            return;
+        }
+        if (!allSnippetsData || !allSnippetsData[selectedProfCat]) {
+            careLinesContainer.innerHTML = "<p>Nenhuma linha de cuidado definida para esta categoria no JSON de snippets.</p>";
             return;
         }
 
         const careLinesInJSON = Object.keys(allSnippetsData[selectedProfCat]);
         if (careLinesInJSON.length === 0) {
-            careLinesContainer.innerHTML = "<p>Nenhuma linha de cuidado encontrada para esta categoria profissional no JSON.</p>";
+            careLinesContainer.innerHTML = "<p>Nenhuma linha de cuidado encontrada para esta categoria.</p>";
             return;
         }
 
         try {
-            // Solicita ao background apenas as linhas de cuidado habilitadas para a categoria selecionada
-            const enabledCareLinesForProfCat = await sendMessage({ action: "getEnabledCareLines", professionalCategory: selectedProfCat });
+            // Busca as linhas de cuidado habilitadas especificamente para esta categoria profissional
+            const result = await sendMessage({ action: "getEnabledCareLines" });
+            if (result.error) throw new Error(result.error);
+
+            // Espera-se que result.enabledCareLines seja um objeto como { "Médico": ["Diabetes"], "Enfermagem": [] }
+            const enabledCareLinesForProfCat = (result.enabledCareLines && result.enabledCareLines[selectedProfCat]) 
+                                                ? result.enabledCareLines[selectedProfCat] 
+                                                : [];
+            
+            // Verifica se enabledCareLinesForProfCat é de fato um array antes de usar .includes
+            if (!Array.isArray(enabledCareLinesForProfCat)) {
+                console.error("enabledCareLinesForProfCat não é um array:", enabledCareLinesForProfCat);
+                careLinesContainer.innerHTML = "<p>Erro ao carregar as configurações de linhas de cuidado (não é um array).</p>";
+                return;
+            }
 
             careLinesInJSON.forEach(careLine => {
-                const lbl = document.createElement("label");
-                const chk = document.createElement("input");
-                chk.type = "checkbox";
-                chk.value = careLine;
-                chk.dataset.profCat = selectedProfCat; // Armazena a categoria para o evento
-                chk.checked = enabledCareLinesForProfCat.includes(careLine);
-                chk.addEventListener("change", updateEnabledCareLines);
+                const checkboxId = `careLine-${selectedProfCat}-${careLine.replace(/\s+/g, '-')}`;
+                const label = document.createElement("label");
+                label.htmlFor = checkboxId;
 
-                lbl.appendChild(chk);
-                lbl.appendChild(document.createTextNode(careLine));
-                careLinesContainer.appendChild(lbl);
+                const checkbox = document.createElement("input");
+                checkbox.type = "checkbox";
+                checkbox.id = checkboxId;
+                checkbox.value = careLine;
+                checkbox.dataset.profCat = selectedProfCat; // Armazena a categoria profissional no dataset
+                // Verifica se a linha de cuidado está na lista de habilitadas para a categoria atual
+                checkbox.checked = enabledCareLinesForProfCat.includes(careLine);
+                
+                checkbox.addEventListener("change", updateEnabledCareLines);
+
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(careLine));
+                careLinesContainer.appendChild(label);
+                careLinesContainer.appendChild(document.createElement("br"));
             });
+
         } catch (error) {
             console.error("Erro ao carregar linhas de cuidado habilitadas:", error);
-            careLinesContainer.innerHTML = `<p>Erro ao carregar linhas de cuidado: ${error.message}</p>`;
+            careLinesContainer.innerHTML = `<p>Erro ao carregar linhas de cuidado: ${error.message}. Tente recarregar a extensão e a página de opções.</p>`;
         }
     }
 
