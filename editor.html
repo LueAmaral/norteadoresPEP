@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Editor de Snippets</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; width: 700px; margin: auto; }
+        .container { margin-bottom: 20px; }
+        label { display: block; margin-top: 10px; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], select, textarea {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea { min-height: 150px; }
+        button { padding: 10px 15px; margin-right: 10px; cursor: pointer; }
+        .columns { display: flex; gap: 20px; }
+        .column { flex: 1; }
+        #snippetsTreeView { border: 1px solid #ccc; padding: 10px; min-height: 200px; max-height: 400px; overflow-y: auto; }
+        .tree-item { padding: 5px; cursor: pointer; }
+        .tree-item:hover { background-color: #f0f0f0; }
+        .selected-item { background-color: #e0e0e0; font-weight: bold; }
+        .hidden { display: none; }
+        #importExportSection button { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Editor de Snippets</h1>
+
+    <div class="container" id="importExportSection">
+        <button id="btnExportJson">Exportar para JSON</button>
+        <input type="file" id="fileImportJson" accept=".json" class="hidden">
+        <button id="btnImportJson">Importar de JSON</button>
+        <p><small>Nota: A sincronização automática/manual com o GitHub (pela página de Opções) pode sobrescrever as alterações feitas aqui, a menos que você exporte suas edições.</small></p>
+    </div>
+
+    <div class="columns">
+        <div class="column">
+            <h2>Estrutura dos Snippets</h2>
+            <div id="snippetsTreeViewLoading">Carregando estrutura...</div>
+            <div id="snippetsTreeView"></div>
+        </div>
+        <div class="column">
+            <h2>Editar Snippet Selecionado</h2>
+            <form id="editSnippetForm">
+                <label for="editProfCatSelect">Categoria Profissional:</label>
+                <select id="editProfCatSelect"></select>
+                <input type="text" id="editNewProfCatInput" placeholder="Nova Categoria Profissional" class="hidden" style="margin-top: -5px; margin-bottom: 10px;">
+
+                <label for="editCareLineSelect">Linha de Cuidado:</label>
+                <select id="editCareLineSelect"></select>
+                <input type="text" id="editNewCareLineInput" placeholder="Nova Linha de Cuidado" class="hidden" style="margin-top: -5px; margin-bottom: 10px;">
+
+                <label for="editSnippetType">Tipo de Snippet (usado como comando se nenhum comando customizado for definido):</label>
+                <input type="text" id="editSnippetType" required>
+
+                <label for="editSnippetCommand">Comando Customizado (ex: "diagrapido", sem o "/"):</label>
+                <input type="text" id="editSnippetCommand" placeholder="Opcional. Ex: evomed, altauti">
+
+                <label for="editSnippetContent">Conteúdo do Snippet:</label>
+                <textarea id="editSnippetContent" required></textarea>
+
+                <button type="submit" id="btnSaveSnippet">Salvar Snippet</button>
+                <button type="button" id="btnDeleteSnippet" class="hidden">Excluir Snippet</button>
+                <button type="button" id="btnClearForm">Novo/Limpar</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="editor.js"></script>
+</body>
+</html>

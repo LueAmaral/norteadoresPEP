@@ -1,44 +1,39 @@
-// Guarda o elemento alvo para colar o snippet
 let targetElement = null;
-let customMenu = null; // Referência ao menu customizado
+let customMenu = null;
+let currentInsertionMode = "both"; // Padrão inicial
+let pinButtons = []; // Array para rastrear os botões 📌
 
-// Função para criar e mostrar o menu customizado
 async function showCustomMenu(textareaElement) {
     targetElement = textareaElement;
 
-    // Remove menu anterior, se existir
     if (customMenu) {
         customMenu.remove();
         customMenu = null;
     }
 
-    // Cria o contêiner do menu
     customMenu = document.createElement("div");
     customMenu.style.position = "absolute";
     customMenu.style.border = "1px solid #ccc";
     customMenu.style.background = "white";
     customMenu.style.padding = "10px";
-    customMenu.style.zIndex = "10000"; // Para ficar sobre outros elementos
+    customMenu.style.zIndex = "10000"; 
     customMenu.style.boxShadow = "0px 2px 5px rgba(0,0,0,0.2)";
     customMenu.style.fontFamily = "Arial, sans-serif";
     customMenu.style.fontSize = "14px";
 
-    // Posiciona o menu abaixo da textarea
     const rect = textareaElement.getBoundingClientRect();
     let topPosition = window.scrollY + rect.bottom + 5;
     let leftPosition = window.scrollX + rect.left;
     customMenu.style.top = `${topPosition}px`;
     customMenu.style.left = `${leftPosition}px`;
-    customMenu.style.minWidth = `280px`; // Largura mínima para o menu
-    customMenu.style.maxWidth = `450px`; // Largura máxima
+    customMenu.style.minWidth = `280px`; 
+    customMenu.style.maxWidth = `450px`; 
 
-    // Adiciona um título
     const title = document.createElement("h4");
     title.textContent = "Selecionar Máscara";
     title.style.margin = "0 0 10px 0";
     customMenu.appendChild(title);
 
-    // Busca dados do background script
     chrome.runtime.sendMessage({ action: "getSnippetsDataForInPageMenu" }, (response) => {
         if (chrome.runtime.lastError || (response && response.error)) {
             console.error("Erro ao buscar dados para o menu:", chrome.runtime.lastError || response.error);
@@ -64,7 +59,6 @@ async function showCustomMenu(textareaElement) {
             return;
         }
 
-        // Cria o select de Linhas de Cuidado
         const careLineLabel = document.createElement("label");
         careLineLabel.textContent = "Linha de Cuidado: ";
         careLineLabel.style.display = "block";
@@ -76,12 +70,10 @@ async function showCustomMenu(textareaElement) {
         careLineSelect.style.marginBottom = "10px";
         customMenu.appendChild(careLineSelect);
 
-        // Div para os tipos de snippet (Subjetivo, Objetivo, etc.)
         const snippetTypesContainer = document.createElement("div");
         snippetTypesContainer.style.marginTop = "10px";
         customMenu.appendChild(snippetTypesContainer);
 
-        // Popula select de Linhas de Cuidado
         enabledCareLinesForProfCat.forEach(careLine => {
             if (snippetsForProfCat[careLine]) {
                 const option = document.createElement("option");
@@ -98,7 +90,6 @@ async function showCustomMenu(textareaElement) {
             return;
         }
 
-        // Função para renderizar os tipos de snippet para uma Linha de Cuidado
         function renderSnippetTypes(selectedCareLine) {
             snippetTypesContainer.innerHTML = "";
             if (!selectedCareLine || !snippetsForProfCat[selectedCareLine]) {
@@ -106,7 +97,7 @@ async function showCustomMenu(textareaElement) {
                 return;
             }
 
-            const snippetTypes = snippetsForProfCat[selectedCareLine]; // Ex: { Subjetivo: "...", Objetivo: "..." }
+            const snippetTypes = snippetsForProfCat[selectedCareLine]; 
             if (typeof snippetTypes !== 'object' || Object.keys(snippetTypes).length === 0) {
                 snippetTypesContainer.innerHTML = "<p>Nenhum tipo de snippet (Subjetivo, Objetivo, etc.) definido para esta linha de cuidado no JSON.</p>";
                 return;
@@ -129,14 +120,13 @@ async function showCustomMenu(textareaElement) {
                 li.addEventListener("mouseenter", () => li.style.backgroundColor = "#f9f9f9");
                 li.addEventListener("mouseleave", () => li.style.backgroundColor = "white");
                 li.addEventListener("click", (e) => {
-                    e.stopPropagation(); // Evita que o clique feche o menu imediatamente se o listener de click outside estiver ativo
+                    e.stopPropagation(); 
                     pasteSnippetIntoTextarea(typeContent);
                     if (customMenu) customMenu.remove();
                     document.removeEventListener("click", handleClickOutsideMenu, true);
                 });
                 list.appendChild(li);
             });
-            // Remove a última borda
             if (list.lastChild) list.lastChild.style.borderBottom = "none";
             snippetTypesContainer.appendChild(list);
         }
@@ -157,7 +147,6 @@ async function showCustomMenu(textareaElement) {
         } else if (careLineSelect.options.length > 0) {
             careLineSelect.selectedIndex = 0;
             careLineToRenderInitially = careLineSelect.value;
-            // Salva esta como a última selecionada se nenhuma válida existia ou a anterior não é mais válida
             chrome.runtime.sendMessage({ action: "setLastSelectedCareLine", careLine: careLineToRenderInitially });
         }
 
@@ -168,8 +157,6 @@ async function showCustomMenu(textareaElement) {
         }
 
         document.body.appendChild(customMenu);
-        // Adiciona listener para fechar o menu ao clicar fora
-        // Timeout para evitar que o clique que abriu o menu o feche imediatamente
         setTimeout(() => {
             document.addEventListener("click", handleClickOutsideMenu, true);
         }, 0);
@@ -178,7 +165,6 @@ async function showCustomMenu(textareaElement) {
 
 function handleClickOutsideMenu(event) {
     if (customMenu && !customMenu.contains(event.target)) {
-        // Verifica se o clique não foi no botão que abre o menu
         const isButtonClick = event.target.closest('button[data-snippet-button="true"]');
         if (!isButtonClick) {
             customMenu.remove();
@@ -188,7 +174,6 @@ function handleClickOutsideMenu(event) {
     }
 }
 
-// Função para colar o snippet na textarea alvo
 function pasteSnippetIntoTextarea(content) {
     if (targetElement) {
         targetElement.focus();
@@ -206,47 +191,226 @@ function pasteSnippetIntoTextarea(content) {
 
 // Insere o botão ao lado de cada textarea
 function injectButtons() {
-    const textareas = document.querySelectorAll("textarea");
+    if (!currentInsertionMode.includes("button")) {
+        removeAllPinButtons(); // Remove botões se o modo não incluir "button"
+        return;
+    }
+
+    const textareas = document.querySelectorAll("textarea:not([data-pin-injected='true'])");
     textareas.forEach((el) => {
-        if (el.dataset.snippetInjected) return;
-        el.dataset.snippetInjected = "1";
+        // Verifica se já existe um botão para este textarea
+        let existingButton = el.previousElementSibling;
+        if (existingButton && existingButton.classList && existingButton.classList.contains("snippet-pin-button")) {
+            el.dataset.pinInjected = "true"; // Marca como já injetado se o botão já existe
+            if (!pinButtons.includes(existingButton)) pinButtons.push(existingButton);
+            return; 
+        }
 
-        const btn = document.createElement("button");
-        btn.textContent = "📌";
-        btn.title = "Inserir máscara (menu na página)";
-        btn.style.marginLeft = "4px";
-        btn.style.cursor = "pointer";
-        btn.style.padding = "2px 6px";
-        btn.style.fontSize = "12px";
-        btn.dataset.snippetButton = "true"; // Marca o botão
+        const button = document.createElement("button");
+        button.textContent = "📌";
+        button.classList.add("snippet-pin-button"); // Adiciona uma classe para identificação
+        button.style.position = "absolute";
+        button.style.zIndex = "9999";
+        button.style.cursor = "pointer";
+        button.style.backgroundColor = "#f0f0f0";
+        button.style.border = "1px solid #ccc";
+        button.style.borderRadius = "4px";
+        button.style.padding = "2px 5px";
+        button.style.fontSize = "14px";
+        button.style.lineHeight = "1";
+        button.style.marginLeft = "-25px"; // Ajuste para posicionar ao lado
+        button.style.marginTop = "5px";
 
-        btn.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            // Se o menu já estiver aberto e for para o mesmo target, fecha.
-            // Senão, abre/move o menu.
-            if (customMenu && targetElement === el) {
-                customMenu.remove();
-                customMenu = null;
-                document.removeEventListener("click", handleClickOutsideMenu, true);
-            } else {
-                showCustomMenu(el);
-            }
+        // Posicionamento relativo ao textarea
+        el.style.position = "relative"; // Garante que o textarea seja o contexto de posicionamento
+        // Insere o botão *antes* do textarea no DOM para facilitar o posicionamento e evitar que ele cubra o conteúdo do textarea
+        el.parentNode.insertBefore(button, el);
+        positionPinButton(button, el);
+        
+        button.addEventListener("click", (e) => {
+            e.stopPropagation(); // Evita que o clique no botão dispare outros eventos
+            showCustomMenu(el);
         });
-        el.parentNode.insertBefore(btn, el.nextSibling);
+        el.dataset.pinInjected = "true"; // Marca que o botão foi injetado
+        pinButtons.push(button); // Adiciona o botão ao array de rastreamento
     });
 }
 
-// Ao carregar ou mutações dinâmicas, tenta injetar
-injectButtons();
-new MutationObserver(injectButtons).observe(document.body, { childList: true, subtree: true });
+function positionPinButton(button, textarea) {
+    // Tenta posicionar o botão no canto superior direito do textarea
+    // Esta função pode precisar de ajustes dependendo do layout da página alvo
+    const rect = textarea.getBoundingClientRect();
+    const parentRect = textarea.offsetParent ? textarea.offsetParent.getBoundingClientRect() : { top: 0, left: 0 };
 
-// Listener para mensagens (se necessário no futuro, por exemplo, colar via atalho)
-/*
-chrome.runtime.onMessage.addListener((msg) => {
-    // Exemplo: se você reintroduzir um atalho de teclado que precise colar algo
-    // if (msg.action === "pasteViaShortcut" && targetElement) {
-    //     pasteSnippetIntoTextarea(msg.content);
-    // }
+    // Posicionamento inicial simples. Pode ser melhorado.
+    button.style.top = `${textarea.offsetTop + 5}px`;
+    button.style.left = `${textarea.offsetLeft + textarea.offsetWidth - 25}px`; 
+}
+
+function removeAllPinButtons() {
+    pinButtons.forEach(button => {
+        if (button.parentNode) {
+            button.parentNode.removeChild(button);
+        }
+    });
+    pinButtons = []; // Limpa o array
+    // Remove o atributo data-pin-injected para que os botões possam ser reinjetados se necessário
+    document.querySelectorAll("textarea[data-pin-injected='true']").forEach(el => {
+        el.removeAttribute("data-pin-injected");
+    });
+}
+
+// Observador para injetar botões em textareas que aparecem dinamicamente
+const observer = new MutationObserver(() => {
+    if (currentInsertionMode.includes("button")) {
+        injectButtons();
+    }
 });
-*/
+
+// --- Implementação do comando /snippet ---
+
+// Configuração (poderia vir das opções da extensão no futuro)
+const COMMAND_TRIGGER_CHAR = "/";
+const COMMAND_ACTIVATION_KEY = " "; 
+
+let currentCommand = "";
+let commandActive = false;
+
+function handleTextInput(event) {
+    const el = event.target;
+    // Verifica se o elemento é um textarea ou contenteditable
+    if (el.tagName !== "TEXTAREA" && (!el.isContentEditable || el.isContentEditable === "false")) {
+        resetCommandState();
+        return;
+    }
+
+    if (customMenu && customMenu.isConnected) {
+        return;
+    }
+
+    const key = event.key;
+
+    // Verifica se o modo de comando está ativo
+    if (!currentInsertionMode.includes("command")) {
+        resetCommandState(); // Garante que o estado do comando seja resetado se o modo não estiver ativo
+        return;
+    }
+
+    const currentText = el.value || el.textContent; 
+
+    if (commandActive) {
+        if (key === COMMAND_ACTIVATION_KEY || key === "Enter") {
+            event.preventDefault(); 
+            const commandToExecute = currentCommand;
+            resetCommandState();
+            
+            chrome.runtime.sendMessage({ action: "getSnippetByCommandName", command: commandToExecute }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error("Erro ao buscar snippet por comando:", chrome.runtime.lastError.message);
+                    insertTextAtCursor(el, `${COMMAND_TRIGGER_CHAR}${commandToExecute}${key === "Enter" ? "" : key}`);
+                    return;
+                }
+                if (response && response.found && response.content) {
+                    const textToRemove = `${COMMAND_TRIGGER_CHAR}${commandToExecute}`;
+                    
+                    if (el.value !== undefined) { 
+                        const cursorPos = el.selectionStart;
+                        const textBefore = el.value.substring(0, cursorPos - textToRemove.length);
+                        const textAfter = el.value.substring(cursorPos);
+                        el.value = textBefore + response.content + textAfter;
+                        el.selectionStart = el.selectionEnd = (textBefore + response.content).length;
+                    } else if (el.isContentEditable) { 
+                        const selection = window.getSelection();
+                        const range = selection.getRangeAt(0);
+                        range.setStart(range.startContainer, range.startOffset - textToRemove.length);
+                        range.deleteContents();
+                        range.insertNode(document.createTextNode(response.content));
+                        range.collapse(false); 
+                    }
+                    targetElement = el; 
+                } else {
+                    insertTextAtCursor(el, `${COMMAND_TRIGGER_CHAR}${commandToExecute}${key === "Enter" ? "" : key}`);
+                }
+            });
+
+        } else if (key === "Escape" || key.startsWith("Arrow") || (event.ctrlKey || event.metaKey)) {
+            resetCommandState();
+        } else if (key === "Backspace") {
+            if (currentCommand.length > 0) {
+                currentCommand = currentCommand.slice(0, -1);
+            } else {
+                resetCommandState(); 
+            }
+        } else if (key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) { 
+            currentCommand += key;
+            event.preventDefault(); 
+        } else {
+        }
+    } else if (key === COMMAND_TRIGGER_CHAR) {
+        const cursorPos = el.selectionStart !== undefined ? el.selectionStart : window.getSelection().getRangeAt(0).startOffset;
+        const charBefore = currentText[cursorPos-1];
+        if (cursorPos === 0 || charBefore === undefined || /\s|[\.,;\(\)]/.test(charBefore)) {
+            commandActive = true;
+            currentCommand = "";
+        } 
+    }
+}
+
+function resetCommandState() {
+    commandActive = false;
+    currentCommand = "";
+}
+
+function insertTextAtCursor(el, text) {
+    if (el.value !== undefined) {
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        el.value = el.value.substring(0, start) + text + el.value.substring(end);
+        el.selectionStart = el.selectionEnd = start + text.length;
+    } else if (el.isContentEditable) {
+        const selection = window.getSelection();
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(document.createTextNode(text));
+        range.collapse(false);
+    }
+}
+
+// --- Controle de Modo de Inserção ---
+function applyInsertionMode(mode) {
+    currentInsertionMode = mode;
+    console.log("Modo de inserção aplicado em content.js:", currentInsertionMode);
+
+    if (currentInsertionMode.includes("button")) {
+        injectButtons();
+        observer.observe(document.body, { childList: true, subtree: true });
+    } else {
+        removeAllPinButtons();
+        observer.disconnect();
+    }
+
+    if (currentInsertionMode.includes("command")) {
+        document.addEventListener("keydown", handleTextInput, true);
+    } else {
+        document.removeEventListener("keydown", handleTextInput, true);
+        resetCommandState(); // Garante que o estado do comando seja limpo ao desativar
+    }
+}
+
+// Carrega o modo de inserção inicial e ouve por mudanças
+chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
+    if (response && response.mode) {
+        applyInsertionMode(response.mode);
+    } else {
+        applyInsertionMode("both"); // Padrão se nada for encontrado
+    }
+});
+
+chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === "local" && changes.insertionMode) {
+        applyInsertionMode(changes.insertionMode.newValue);
+    }
+});
+
+// Inicializa a injeção de botões (se aplicável) e observador de mutação
+// A chamada inicial a injectButtons e observer.observe é agora feita dentro de applyInsertionMode

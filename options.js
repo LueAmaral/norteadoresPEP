@@ -7,6 +7,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const careLinesContainer = document.getElementById("careLinesContainer");
     const btnSync = document.getElementById("syncBtn");
     const statusEl = document.getElementById("syncStatus");
+    const openEditorBtn = document.getElementById("openEditorBtn");
+    const insertionModeRadios = document.querySelectorAll("input[name='insertionMode']");
+    const insertionModeStatusEl = document.getElementById("insertionModeStatus");
 
     let allSnippetsData = {}; // Para armazenar os snippets carregados do storage
 
@@ -125,6 +128,41 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
+    // --- Modo de Inserção ---
+    async function loadInsertionMode() {
+        try {
+            const result = await sendMessage({ action: "getInsertionMode" });
+            const currentMode = result.mode || "both"; // Padrão para 'both'
+            insertionModeRadios.forEach(radio => {
+                if (radio.value === currentMode) {
+                    radio.checked = true;
+                }
+            });
+        } catch (error) {
+            console.error("Erro ao carregar modo de inserção:", error);
+            insertionModeStatusEl.textContent = "Erro ao carregar modo.";
+            insertionModeStatusEl.style.color = "red";
+        }
+    }
+
+    async function saveInsertionMode() {
+        const selectedMode = document.querySelector("input[name='insertionMode']:checked").value;
+        try {
+            await sendMessage({ action: "setInsertionMode", mode: selectedMode });
+            insertionModeStatusEl.textContent = `Modo de inserção salvo: ${selectedMode}`;
+            insertionModeStatusEl.style.color = "green";
+            setTimeout(() => { insertionModeStatusEl.textContent = ""; }, 3000);
+        } catch (error) {
+            console.error("Erro ao salvar modo de inserção:", error);
+            insertionModeStatusEl.textContent = "Erro ao salvar modo.";
+            insertionModeStatusEl.style.color = "red";
+        }
+    }
+
+    insertionModeRadios.forEach(radio => {
+        radio.addEventListener("change", saveInsertionMode);
+    });
+
     profCatSelect.addEventListener("change", async () => {
         const newProfCat = profCatSelect.value;
         if (newProfCat) {
@@ -159,5 +197,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     });
 
-    await loadProfessionalCategories();
+    // --- Inicialização ---
+    await loadProfessionalCategories(); // Carrega categorias primeiro
+    await loadInsertionMode(); // Depois carrega o modo de inserção
+
+    // Evento para o botão de abrir o editor
+    if (openEditorBtn) {
+        openEditorBtn.addEventListener("click", () => {
+            chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
+        });
+    }
 });

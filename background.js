@@ -11,45 +11,49 @@ const LAST_SELECTED_CARE_LINE_KEY = "lastSelectedCareLine"; // Novo: obj { profC
 async function fetchSnippetsAndSave() {
     try {
         const resp = await fetch(GITHUB_RAW_URL);
-        if (!resp.ok) throw new Error(`Falha ao buscar JSON: ${resp.statusText}`); // Adicionado statusText para melhor erro
+        if (!resp.ok) {
+            console.error(`Erro ao buscar snippets do GitHub: ${resp.status}`);
+            // Tenta notificar o usuário sobre a falha na sincronização
+            chrome.notifications.create({
+                type: "basic",
+                iconUrl: "icon.png",
+                title: "Erro de Sincronização",
+                message: `Não foi possível buscar os snippets do GitHub. Status: ${resp.status}`
+            });
+            return false;
+        }
         const data = await resp.json();
         await chrome.storage.local.set({ [STORAGE_KEY]: data });
+        console.log("Snippets sincronizados e salvos:", data);
 
-        // Inicializa categoria profissional e linhas de cuidado habilitadas se necessário
+        // Atualiza/Inicializa categoria profissional e linhas de cuidado habilitadas
+        await updateEnabledCareLinesOnSnippetsChange(data);
+
+        // Adicional: Se nenhuma categoria profissional estiver definida, define a primeira como padrão.
         const professionalCategories = Object.keys(data || {});
         if (professionalCategories.length > 0) {
-            const currentProfCatStorage = await chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY);
-            const currentProfCat = currentProfCatStorage[PROFESSIONAL_CATEGORY_KEY];
-
-            if (!currentProfCat && professionalCategories.length > 0) {
-                // Define a primeira categoria profissional como padrão se nenhuma estiver definida
+            const currentProfCatResult = await chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY);
+            if (!currentProfCatResult[PROFESSIONAL_CATEGORY_KEY]) {
                 await chrome.storage.local.set({ [PROFESSIONAL_CATEGORY_KEY]: professionalCategories[0] });
             }
-
-            let { [ENABLED_CARE_LINES_KEY]: enabledCareLines } = await chrome.storage.local.get(ENABLED_CARE_LINES_KEY);
-            if (!enabledCareLines) enabledCareLines = {};
-
-            let needsUpdate = false;
-            for (const profCat of professionalCategories) {
-                if (data[profCat] && typeof data[profCat] === 'object') {
-                    const careLinesForProfCat = Object.keys(data[profCat]);
-                    if (!enabledCareLines[profCat]) {
-                        enabledCareLines[profCat] = careLinesForProfCat; // Habilita todas as linhas de cuidado por padrão para novas categorias prof.
-                        needsUpdate = true;
-                    } else {
-                        // Opcional: Sincronizar para remover linhas de cuidado que não existem mais no JSON
-                        // enabledCareLines[profCat] = enabledCareLines[profCat].filter(line => careLinesForProfCat.includes(line));
-                        // if (enabledCareLines[profCat].length !== Object.keys(data[profCat]).length) needsUpdate = true;
-                    }
-                }
-            }
-            if (needsUpdate) {
-                await chrome.storage.local.set({ [ENABLED_CARE_LINES_KEY]: enabledCareLines });
-            }
         }
+
+        // Notifica o usuário sobre o sucesso da sincronização (opcional, mas bom para manual sync)
+        chrome.notifications.create({
+            type: "basic",
+            iconUrl: "icon.png",
+            title: "Sincronização Concluída",
+            message: "Os snippets foram sincronizados com sucesso!"
+        });
         return true;
     } catch (e) {
         console.error("Erro ao sincronizar:", e);
+        chrome.notifications.create({
+            type: "basic",
+            iconUrl: "icon.png",
+            title: "Erro de Sincronização",
+            message: `Ocorreu um erro: ${e.message}`
+        });
         return false;
     }
 }
@@ -68,110 +72,250 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // Recebe mensagens do content script ou options/popup
 chrome.runtime.onMessage.addListener((msg, sender, respond) => {
-    if (msg.action === "openPopup") {
-        // Esta ação pode ser removida se o popup.html não for mais usado para seleção
-        chrome.action.openPopup();
-        return false;
-    }
     if (msg.action === "manualSync") {
-        fetchSnippetsAndSave().then(ok => respond({ success: ok }));
-        return true; // para indicar que responderemos async
+        fetchSnippetsAndSave().then(success => respond({ success })).catch(err => respond({ success: false, error: err.message }));
+        return true;
     }
-    // Ações para categoria profissional
     if (msg.action === "getProfessionalCategory") {
-        chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY).then(res => respond(res[PROFESSIONAL_CATEGORY_KEY]));
+        chrome.storage.local.get([PROFESSIONAL_CATEGORY_KEY], (result) => {
+            if (chrome.runtime.lastError) respond({ error: chrome.runtime.lastError.message });
+            else respond({ category: result[PROFESSIONAL_CATEGORY_KEY] });
+        });
         return true;
     }
     if (msg.action === "setProfessionalCategory") {
-        chrome.storage.local.set({ [PROFESSIONAL_CATEGORY_KEY]: msg.category })
-            .then(() => respond({ success: true }))
-            .catch(err => respond({ success: false, error: err.message }));
-        return true;
-    }
-
-    // Ações para linhas de cuidado habilitadas (agora por categoria profissional)
-    if (msg.action === "getEnabledCareLines") { // Espera msg.professionalCategory
-        chrome.storage.local.get(ENABLED_CARE_LINES_KEY).then(res => {
-            const allEnabled = res[ENABLED_CARE_LINES_KEY] || {};
-            respond(allEnabled[msg.professionalCategory] || []);
+        chrome.storage.local.set({ [PROFESSIONAL_CATEGORY_KEY]: msg.category }, () => {
+            if (chrome.runtime.lastError) respond({ success: false, error: chrome.runtime.lastError.message });
+            else respond({ success: true });
         });
         return true;
     }
-    if (msg.action === "setEnabledCareLines") { // Espera msg.professionalCategory e msg.careLines
-        chrome.storage.local.get(ENABLED_CARE_LINES_KEY).then(res => {
-            let allEnabled = res[ENABLED_CARE_LINES_KEY] || {};
-            allEnabled[msg.professionalCategory] = msg.careLines;
-            chrome.storage.local.set({ [ENABLED_CARE_LINES_KEY]: allEnabled })
-                .then(() => respond({ success: true }))
-                .catch(err => respond({ success: false, error: err.message }));
+    if (msg.action === "getEnabledCareLines") {
+        chrome.storage.local.get([ENABLED_CARE_LINES_KEY], (result) => {
+            if (chrome.runtime.lastError) respond({ error: chrome.runtime.lastError.message });
+            else respond({ enabledCareLines: result[ENABLED_CARE_LINES_KEY] || {} });
         });
         return true;
     }
-
-    // Ações para última linha de cuidado selecionada (agora por categoria profissional)
-    if (msg.action === "getLastSelectedCareLine") { // Espera msg.professionalCategory
-        chrome.storage.local.get(LAST_SELECTED_CARE_LINE_KEY).then(res => {
-            const allLastSelected = res[LAST_SELECTED_CARE_LINE_KEY] || {};
-            respond(allLastSelected[msg.professionalCategory]);
+    if (msg.action === "setEnabledCareLines") {
+        chrome.storage.local.set({ [ENABLED_CARE_LINES_KEY]: msg.enabledCareLines }, () => {
+            if (chrome.runtime.lastError) respond({ success: false, error: chrome.runtime.lastError.message });
+            else respond({ success: true });
         });
         return true;
     }
-    if (msg.action === "setLastSelectedCareLine") { // Espera msg.careLine (a profCat será buscada aqui)
-        chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY).then(profCatStorage => {
-            const currentProfCat = profCatStorage[PROFESSIONAL_CATEGORY_KEY];
-            if (currentProfCat) {
-                chrome.storage.local.get(LAST_SELECTED_CARE_LINE_KEY).then(res => {
-                    let allLastSelected = res[LAST_SELECTED_CARE_LINE_KEY] || {};
-                    allLastSelected[currentProfCat] = msg.careLine;
-                    chrome.storage.local.set({ [LAST_SELECTED_CARE_LINE_KEY]: allLastSelected })
-                        .then(() => respond({ success: true }))
-                        .catch(err => respond({ success: false, error: err.message }));
-                });
-            } else {
-                respond({ success: false, error: "Categoria profissional não definida." });
+    if (msg.action === "getLastSelectedCareLine") {
+        chrome.storage.local.get([LAST_SELECTED_CARE_LINE_KEY], (result) => {
+            if (chrome.runtime.lastError) respond({ error: chrome.runtime.lastError.message });
+            else respond({ careLine: result[LAST_SELECTED_CARE_LINE_KEY] });
+        });
+        return true;
+    }
+    if (msg.action === "setLastSelectedCareLine") {
+        chrome.storage.local.get([LAST_SELECTED_CARE_LINE_KEY], localResult => {
+            if (chrome.runtime.lastError) {
+                respond({ success: false, error: chrome.runtime.lastError.message });
+                return;
             }
-        }).catch(err => respond({ success: false, error: err.message }));
+            const allLastSelected = localResult[LAST_SELECTED_CARE_LINE_KEY] || {};
+            allLastSelected[msg.category] = msg.careLine;
+            chrome.storage.local.set({ [LAST_SELECTED_CARE_LINE_KEY]: allLastSelected }, () => {
+                if (chrome.runtime.lastError) respond({ success: false, error: chrome.runtime.lastError.message });
+                else respond({ success: true });
+            });
+        });
         return true;
     }
-
-    // Nova ação para fornecer dados completos para o menu na página
     if (msg.action === "getSnippetsDataForInPageMenu") {
-        Promise.all([
-            chrome.storage.local.get(STORAGE_KEY),
-            chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY),
-            chrome.storage.local.get(ENABLED_CARE_LINES_KEY),
-            chrome.storage.local.get(LAST_SELECTED_CARE_LINE_KEY)
-        ]).then(([snippetsStorage, profCatStorage, enabledCareLinesStorage, lastSelectedCareLineStorage]) => {
-            const allSnippets = snippetsStorage[STORAGE_KEY] || {};
-            const profCat = profCatStorage[PROFESSIONAL_CATEGORY_KEY];
-            const allEnabledCareLines = enabledCareLinesStorage[ENABLED_CARE_LINES_KEY] || {};
-            const allLastSelectedCareLines = lastSelectedCareLineStorage[LAST_SELECTED_CARE_LINE_KEY] || {};
+        chrome.storage.local.get([STORAGE_KEY, PROFESSIONAL_CATEGORY_KEY, ENABLED_CARE_LINES_KEY, LAST_SELECTED_CARE_LINE_KEY], (result) => {
+            if (chrome.runtime.lastError) {
+                respond({ error: chrome.runtime.lastError.message });
+                return;
+            }
+            const professionalCategory = result[PROFESSIONAL_CATEGORY_KEY];
+            const snippets = result[STORAGE_KEY];
+            const enabledCareLinesForCategory = (result[ENABLED_CARE_LINES_KEY] && result[ENABLED_CARE_LINES_KEY][professionalCategory]) ? result[ENABLED_CARE_LINES_KEY][professionalCategory] : [];
+            const lastSelectedCareLineForCategory = (result[LAST_SELECTED_CARE_LINE_KEY] && result[LAST_SELECTED_CARE_LINE_KEY][professionalCategory]) ? result[LAST_SELECTED_CARE_LINE_KEY][professionalCategory] : null;
 
-            if (!profCat || !allSnippets[profCat]) {
+            if (!professionalCategory || !snippets || !snippets[professionalCategory]) {
                 respond({
-                    snippetsForProfCat: {},
-                    enabledCareLinesForProfCat: [],
-                    lastSelectedCareLineForProfCat: null,
-                    error: "Categoria profissional não definida ou sem snippets."
+                    professionalCategory: professionalCategory,
+                    careLines: [],
+                    lastSelectedCareLine: null,
+                    snippetsForCareLine: {}
                 });
                 return;
             }
-
-            const snippetsForProfCat = allSnippets[profCat];
-            // Se enabledCareLinesForProfCat[profCat] não existir, pega todas as chaves de snippetsForProfCat
-            const enabledCareLinesForProfCat = allEnabledCareLines[profCat] || Object.keys(snippetsForProfCat || {});
-            const lastSelectedCareLineForProfCat = allLastSelectedCareLines[profCat];
-
+            const careLinesForMenu = Object.keys(snippets[professionalCategory]).filter(cl => enabledCareLinesForCategory.includes(cl));
             respond({
-                snippetsForProfCat: snippetsForProfCat || {},
-                enabledCareLinesForProfCat: enabledCareLinesForProfCat,
-                lastSelectedCareLineForProfCat: lastSelectedCareLineForProfCat
+                professionalCategory: professionalCategory,
+                careLines: careLinesForMenu,
+                lastSelectedCareLine: lastSelectedCareLineForCategory,
+                snippetsForCareLine: snippets[professionalCategory] // O menu irá filtrar os tipos de snippet da linha selecionada
             });
-        }).catch(error => {
-            console.error("Erro ao buscar dados para o menu in-page:", error);
-            respond({ error: error.message });
         });
-        return true; // Resposta assíncrona
+        return true;
     }
-    return false; // Indica que a mensagem não foi tratada e não haverá resposta assíncrona
+    if (msg.action === "getSnippetsForEditor") {
+        chrome.storage.local.get([STORAGE_KEY], (result) => {
+            if (chrome.runtime.lastError) respond({ error: chrome.runtime.lastError.message });
+            else respond({ snippets: result[STORAGE_KEY] || {} });
+        });
+        return true;
+    }
+    if (msg.action === "saveSnippetsToEditor") {
+        chrome.storage.local.set({ [STORAGE_KEY]: msg.snippets }, async () => {
+            if (chrome.runtime.lastError) {
+                respond({ success: false, error: chrome.runtime.lastError.message });
+                return;
+            }
+            // Atualiza as linhas de cuidado habilitadas com base nos novos snippets
+            await updateEnabledCareLinesOnSnippetsChange(msg.snippets);
+            respond({ success: true });
+        });
+        return true;
+    }
+    if (msg.action === "getSnippetByCommandName") {
+        const commandName = msg.commandName;
+        const professionalCategory = msg.professionalCategory;
+
+        chrome.storage.local.get([STORAGE_KEY, LAST_SELECTED_CARE_LINE_KEY], (result) => {
+            if (chrome.runtime.lastError) {
+                respond({ found: false, reason: `Erro ao ler storage: ${chrome.runtime.lastError.message}` });
+                return;
+            }
+            const snippets = result[STORAGE_KEY];
+            const lastSelectedCareLines = result[LAST_SELECTED_CARE_LINE_KEY] || {};
+            
+            if (!snippets) {
+                respond({ found: false, reason: "Snippets não carregados." });
+                return;
+            }
+            if (!professionalCategory || !snippets[professionalCategory]) {
+                respond({ found: false, reason: `Categoria profissional '${professionalCategory}' não encontrada nos snippets.` });
+                return;
+            }
+
+            let foundSnippetContent = null;
+            let foundInCareLine = null;
+            let foundSnippetType = null; 
+
+            const categorySnippets = snippets[professionalCategory];
+            const careLinesToSearch = Object.keys(categorySnippets);
+
+            const lastUsedCareLine = lastSelectedCareLines[professionalCategory];
+            if (lastUsedCareLine && categorySnippets[lastUsedCareLine]) {
+                const index = careLinesToSearch.indexOf(lastUsedCareLine);
+                if (index > -1) {
+                    careLinesToSearch.splice(index, 1);
+                    careLinesToSearch.unshift(lastUsedCareLine);
+                }
+            }
+
+            for (const careLine of careLinesToSearch) {
+                const types = categorySnippets[careLine];
+                for (const type in types) {
+                    const snippetData = types[type];
+                    if (typeof snippetData === 'object' && snippetData.command && snippetData.command.toLowerCase() === commandName.toLowerCase()) {
+                        foundSnippetContent = snippetData.content;
+                        foundInCareLine = careLine;
+                        foundSnippetType = type;
+                        break; 
+                    }
+                }
+                if (foundSnippetContent) break; 
+            }
+
+            if (!foundSnippetContent) {
+                for (const careLine of careLinesToSearch) {
+                    const types = categorySnippets[careLine];
+                    for (const type in types) {
+                        if (type.toLowerCase() === commandName.toLowerCase()) {
+                            const snippetData = types[type];
+                            foundSnippetContent = (typeof snippetData === 'object' && snippetData.content !== undefined) ? snippetData.content : snippetData;
+                            foundInCareLine = careLine;
+                            foundSnippetType = type;
+                            break; 
+                        }
+                    }
+                    if (foundSnippetContent) break; 
+                }
+            }
+
+            if (foundSnippetContent) {
+                respond({ found: true, content: foundSnippetContent, careLine: foundInCareLine, snippetType: foundSnippetType });
+            } else {
+                respond({ found: false, reason: `Comando ou tipo '${commandName}' não encontrado para a categoria '${professionalCategory}'.` });
+            }
+        });
+        return true; 
+    }
+
+    // Ações para modo de inserção
+    if (msg.action === "getInsertionMode") {
+        chrome.storage.local.get(["insertionMode"], (result) => {
+            if (chrome.runtime.lastError) {
+                console.error("Background: Error getting insertion mode:", chrome.runtime.lastError.message);
+                respond({ error: chrome.runtime.lastError.message });
+            } else {
+                // Retorna o modo ou undefined se não estiver definido, options.js aplicará o padrão "both"
+                respond({ mode: result.insertionMode });
+            }
+        });
+        return true;
+    }
+    if (msg.action === "setInsertionMode") {
+        chrome.storage.local.set({ insertionMode: msg.mode }, () => {
+            if (chrome.runtime.lastError) {
+                console.error("Background: Error setting insertion mode:", chrome.runtime.lastError.message);
+                respond({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+                respond({ success: true });
+            }
+        });
+        return true;
+    }
+
+    /* // Ação openPopup comentada por enquanto
+    if (msg.action === "openPopup") {
+        // chrome.tabs.create({ url: chrome.runtime.getURL("popup.html") });
+        // respond({success: true}); // Exemplo se fosse assíncrono
+    }
+    */
+
+    // Se a mensagem não foi tratada por nenhum dos 'if' acima e uma resposta é esperada,
+    // o remetente pode receber um erro de "message port closed".
+    // É importante garantir que todos os tipos de mensagem que esperam resposta sejam tratados.
 });
+
+// Função auxiliar para atualizar enabledCareLines quando os snippets mudam (ex: via editor)
+async function updateEnabledCareLinesOnSnippetsChange(newSnippetsData) {
+    const { [PROFESSIONAL_CATEGORY_KEY]: currentProfCat, [ENABLED_CARE_LINES_KEY]: currentEnabledCareLines } = await chrome.storage.local.get([
+        PROFESSIONAL_CATEGORY_KEY,
+        ENABLED_CARE_LINES_KEY
+    ]);
+
+    const allProfCategoriesInNewData = Object.keys(newSnippetsData || {});
+    let updatedEnabledCareLines = JSON.parse(JSON.stringify(currentEnabledCareLines || {})); // Deep copy
+    let needsUpdate = false;
+
+    for (const profCat of allProfCategoriesInNewData) {
+        if (!updatedEnabledCareLines[profCat]) {
+            updatedEnabledCareLines[profCat] = []; // Inicializa se a categoria profissional é nova
+            needsUpdate = true;
+        }
+        const careLinesInJSONForProfCat = Object.keys(newSnippetsData[profCat] || {});
+        for (const careLine of careLinesInJSONForProfCat) {
+            if (!updatedEnabledCareLines[profCat].includes(careLine)) {
+                updatedEnabledCareLines[profCat].push(careLine); // Adiciona e habilita por padrão novas linhas de cuidado
+                needsUpdate = true;
+            }
+        }
+    }
+    // Opcional: remover linhas de cuidado de updatedEnabledCareLines que não existem mais em newSnippetsData
+    // (Pode ser complexo se o usuário desabilitou intencionalmente algo que foi removido do JSON)
+
+    if (needsUpdate) {
+        await chrome.storage.local.set({ [ENABLED_CARE_LINES_KEY]: updatedEnabledCareLines });
+    }
+}
