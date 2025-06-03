@@ -1,17 +1,16 @@
 {
     "manifest_version": 3,
-    "name": "Máscaras de Atendimento",
+    "name": "Norteadores de Atendimento",
     "version": "1.0",
-    "description": "Cole rapidamente máscaras de atendimento via atalho ou botão.",
+    "description": "Cole rapidamente norteadores de atendimento via atalho ou botão.",
     "action": {
-        "default_title": "Máscaras de Atendimento"
+        "default_title": "Norteadores de Atendimento"
     },
     "permissions": [
         "storage",
         "scripting",
         "activeTab",
-        "alarms",
-        "notifications"
+        "alarms"
     ],
     "host_permissions": [
         "<all_urls>"

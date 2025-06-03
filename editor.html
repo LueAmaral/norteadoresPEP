@@ -1,80 +1,187 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <title>Editor de Snippets</title>
     <link rel="stylesheet" href="styles.css">
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; width: 700px; margin: auto; }
-        .container { margin-bottom: 20px; }
-        label { display: block; margin-top: 10px; margin-bottom: 5px; font-weight: bold; }
-        input[type="text"], select, textarea {
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            width: 850px;
+            margin: auto;
+        }
+
+        .container {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        select,
+        textarea {
             width: 100%;
             padding: 8px;
             margin-bottom: 10px;
-            box-sizing: border-box; /* Adicionado para melhor controle de layout */
+            box-sizing: border-box;
         }
-        textarea { min-height: 150px; }
-        button { padding: 10px 15px; margin-right: 10px; cursor: pointer; }
-        .columns { display: flex; gap: 20px; }
-        .column { flex: 1; }
-        #snippetsTreeView { border: 1px solid #ccc; padding: 10px; min-height: 200px; max-height: 400px; overflow-y: auto; }
-        .tree-item { padding: 5px; cursor: pointer; }
-        .tree-item:hover { background-color: #f0f0f0; }
-        .selected-item { background-color: #e0e0e0; font-weight: bold; }
-        .hidden { display: none; }
-        #importExportSection button { margin-top: 10px; }
+
+        textarea {
+            min-height: 150px;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+
+        /* Layout principal: sidebar + área de edição */
+        .columns {
+            display: flex;
+        }
+
+        #leftColumn {
+            width: 250px;
+        }
+
+        #rightColumn {
+            flex: 1;
+            margin-left: 20px;
+        }
+
+        /* Sidebar: botões empilhados */
+        #importExportSection {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Formulário em grid */
+        #formFieldsContainer {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            align-items: start;
+        }
+
+        /* Textarea ocupa ambas colunas */
+        #editSnippetContent {
+            grid-column: 1 / -1;
+            min-height: 200px;
+        }
+
+        /* Botões de ação em linha e span total */
+        .button-group {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 10px;
+        }
+
+        #snippetsTreeView {
+            border: 1px solid #ccc;
+            padding: 10px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .tree-item {
+            padding: 5px;
+            cursor: pointer;
+        }
+
+        .tree-item:hover {
+            background-color: #f0f0f0;
+        }
+
+        .selected-item {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #importExportSection button {
+            margin-top: 10px;
+        }
+
+        /* Ensure h1 inside column doesn't add excessive top margin if body already has padding */
+        .column>h1:first-child {
+            margin-top: 0;
+        }
     </style>
 </head>
+
 <body>
-    <h1>Editor de Snippets</h1>
-
-    <div class="container" id="importExportSection">
-        <button id="btnExportJson">Exportar para JSON</button>
-        <input type="file" id="fileImportJson" accept=".json" class="hidden">
-        <button id="btnImportJson">Importar de JSON</button>
-        <p><small>Nota: A sincronização automática/manual com o GitHub (pela página de Opções) pode sobrescrever as alterações feitas aqui, a menos que você exporte suas edições.</small></p>
-    </div>
-
     <div class="columns">
-        <div class="column">
+        <div class="column" id="leftColumn"> <!-- Added ID for clarity if needed -->
+            <h1>Editor de Snippets</h1>
+
+            <div class="container" id="importExportSection">
+                <button id="btnExportJson">Exportar para JSON</button>
+                <input type="file" id="fileImportJson" accept=".json" class="hidden">
+                <button id="btnImportJson">Importar de JSON</button>
+                <p><small>Nota: A sincronização automática/manual com o GitHub (pela página de Opções) pode sobrescrever
+                        as alterações feitas aqui, a menos que você exporte suas edições.</small></p>
+            </div>
+
             <h2>Estrutura de Snippets</h2>
             <div id="snippetsTreeViewLoading" style="display: none;">Carregando snippets...</div>
             <div id="snippetsTreeView">
-                <!-- A árvore será renderizada aqui pelo editor.js -->
                 <p>Nenhum snippet definido. Adicione um novo usando o formulário.</p>
             </div>
         </div>
-        <div class="column">
+        <div class="column" id="rightColumn"> <!-- Added ID for clarity if needed -->
             <h2>Editar Snippet</h2>
+            <div id="editorStatus" style="min-height: 1.5em; margin-bottom: 10px; color: green; font-weight: bold;">
+            </div>
             <form id="editSnippetForm">
-                <div id="formFieldsContainer" class="hidden"> <!-- Inicialmente oculto -->
+                <!-- container agora é grid -->
+                <div id="formFieldsContainer" class="hidden">
+                    <!-- Categoria Profissional e nova categoria lado a lado -->
                     <label for="editProfCatSelect">Categoria Profissional:</label>
                     <select id="editProfCatSelect"></select>
                     <input type="text" id="editNewProfCatInput" placeholder="Ou digite uma nova categoria">
 
+                    <!-- Linha de Cuidado -->
                     <label for="editCareLineSelect">Linha de Cuidado:</label>
                     <select id="editCareLineSelect"></select>
                     <input type="text" id="editNewCareLineInput" placeholder="Ou digite uma nova linha de cuidado">
-                    
+
+                    <!-- Nome/Tipo e Comando lado a lado -->
                     <label for="editSnippetType">Nome/Tipo do Snippet:</label>
                     <input type="text" id="editSnippetType" placeholder="Ex: Subjetivo, Anamnese Rápida">
-
                     <label for="editSnippetCommand">Comando (opcional, sem '/'):</label>
                     <input type="text" id="editSnippetCommand" placeholder="Ex: subj, anam">
 
+                    <!-- Conteúdo ocupa duas colunas -->
                     <label for="editSnippetContent">Conteúdo do Snippet:</label>
                     <textarea id="editSnippetContent"></textarea>
 
-                    <button type="button" id="btnSaveSnippet">Salvar Snippet</button>
-                    <button type="button" id="btnDeleteSnippet" class="hidden">Excluir Snippet</button>
+                    <!-- Botões de ação ocupam toda a largura do grid -->
+                    <div class="button-group">
+                        <button type="button" id="btnSaveSnippet">Salvar Snippet</button>
+                        <button type="button" id="btnDeleteSnippet" class="hidden">Excluir Snippet</button>
+                    </div>
                 </div>
-                <p id="noSnippetSelectedMessage">Selecione um item na árvore para editar, ou clique em "Novo Snippet" para adicionar.</p>
-                <button type="button" id="btnClearForm">Novo Snippet</button> <!-- Movido para fora do formFieldsContainer para estar sempre visível -->
+                <p id="noSnippetSelectedMessage">Selecione um item na árvore para editar, ou clique em "Novo Snippet"
+                    para adicionar.</p>
+                <button type="button" id="btnClearForm">Novo Snippet</button>
             </form>
         </div>
     </div>
 
     <script src="editor.js"></script>
 </body>
+
 </html>

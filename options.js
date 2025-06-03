@@ -1,8 +1,8 @@
 const PROFESSIONAL_CATEGORY_KEY = "professionalCategory";
 const ENABLED_CARE_LINES_KEY = "enabledCareLines";
-const STORAGE_KEY = "snippets"; // Para buscar todas as categorias profissionais e linhas de cuidado
-const INSERTION_MODE_KEY = "insertionMode"; // Adicionada para consistência
-const SYNC_ENABLED_KEY = "syncEnabled"; // Chave para o estado da sincronização automática
+const STORAGE_KEY = "snippets";
+const INSERTION_MODE_KEY = "insertionMode";
+const SYNC_ENABLED_KEY = "syncEnabled";
 
 document.addEventListener("DOMContentLoaded", async () => {
     const profCatSelect = document.getElementById("professionalCategorySelect");
@@ -16,27 +16,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     const syncEnabledCheckbox = document.getElementById("syncEnabledCheckbox");
     const syncEnabledStatusEl = document.getElementById("syncEnabledStatus");
 
-    let allSnippetsData = {}; // Para armazenar os snippets carregados do storage
+    let allSnippetsData = {};
 
-    // Função para enviar mensagem ao background e retornar uma promessa
     function sendMessage(message) {
         return new Promise((resolve, reject) => {
             chrome.runtime.sendMessage(message, (response) => {
                 if (chrome.runtime.lastError) {
                     return reject(chrome.runtime.lastError);
                 }
-                // Verifica se a resposta indica um erro vindo do background
                 if (response && response.success === false && response.error) {
                     return reject(new Error(response.error));
                 }
-                // Se a resposta for apenas um valor (como em getProfessionalCategory), resolve com ele.
-                // Se for um objeto com {success: true}, também resolve.
                 resolve(response);
             });
         });
     }
 
-    // Carrega todas as categorias profissionais do snippets.json (via storage)
     async function loadProfessionalCategories() {
         try {
             const storage = await chrome.storage.local.get(STORAGE_KEY);
@@ -61,7 +56,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (savedProfCat && professionalCategories.includes(savedProfCat)) {
                 profCatSelect.value = savedProfCat;
             }
-            await loadCareLinesForSelectedProfCat(); // Carrega linhas de cuidado para a categoria selecionada
+            await loadCareLinesForSelectedProfCat();
 
         } catch (error) {
             console.error("Erro ao carregar categorias profissionais:", error);
@@ -70,11 +65,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
-    // Carrega e exibe as linhas de cuidado para a categoria profissional selecionada
     async function loadCareLinesForSelectedProfCat() {
         console.log("[OptionsJS] Iniciando loadCareLinesForSelectedProfCat");
         const currentProfCat = profCatSelect.value;
-        careLinesContainer.innerHTML = ""; // Limpa as opções anteriores
+        careLinesContainer.innerHTML = "";
 
         if (!currentProfCat) {
             console.log("[OptionsJS] Nenhuma categoria profissional selecionada.");
@@ -97,43 +91,49 @@ document.addEventListener("DOMContentLoaded", async () => {
         const enabledCareLinesForCurrentProfCat = (enabledCareLinesData && enabledCareLinesData[currentProfCat]) ? enabledCareLinesData[currentProfCat] : [];
         console.log(`[OptionsJS] Linhas de cuidado habilitadas para ${currentProfCat}:`, enabledCareLinesForCurrentProfCat);
 
-
         if (careLinesForCategory.length === 0) {
             careLinesContainer.textContent = "Nenhuma linha de cuidado cadastrada para esta categoria.";
             return;
         }
 
         careLinesForCategory.forEach(careLineName => {
-            const checkboxId = `careLine-${currentProfCat}-${careLineName.replace(/\s+/g, '-')}`; // ID único
+            const checkboxId = `careLine-${currentProfCat}-${careLineName.replace(/\s+/g, '-')}`;
             const label = document.createElement("label");
             const checkbox = document.createElement("input");
             checkbox.type = "checkbox";
             checkbox.id = checkboxId;
             checkbox.value = careLineName;
             checkbox.name = "careLine";
-            
-            // Verifica se a string exata está no array de habilitadas
-            checkbox.checked = enabledCareLinesForCurrentProfCat.includes(careLineName);
-            console.log(`[OptionsJS] Verificando ${careLineName}: Habilitado? ${checkbox.checked}`);
+            checkbox.dataset.profCat = currentProfCat;
 
+            checkbox.checked = enabledCareLinesForCurrentProfCat.includes(careLineName);
+            console.log(`[OptionsJS] Verificando ${careLineName} para ${currentProfCat}: Habilitado? ${checkbox.checked}`);
 
             label.appendChild(checkbox);
             label.appendChild(document.createTextNode(` ${careLineName}`));
-            label.style.display = "block"; // Garante que cada checkbox fique em uma nova linha
+            label.style.display = "block";
             careLinesContainer.appendChild(label);
 
             checkbox.addEventListener("change", updateEnabledCareLines);
         });
     }
 
-    // Atualiza no storage as linhas de cuidado habilitadas para a categoria profissional atual
     async function updateEnabledCareLines(event) {
         const checkbox = event.target;
         const profCatForCheckbox = checkbox.dataset.profCat;
 
-        if (!profCatForCheckbox) return;
+        if (!profCatForCheckbox) {
+            console.warn("[OptionsJS] profCatForCheckbox é undefined em updateEnabledCareLines. Abortando.");
+            return;
+        }
 
-        const checks = Array.from(careLinesContainer.querySelectorAll(`input[type=checkbox][data-prof-cat="${profCatForCheckbox}"]`));
+        const currentProfCat = document.getElementById("professionalCategorySelect").value;
+        if (profCatForCheckbox !== currentProfCat) {
+            console.error(`[OptionsJS] Disparidade de categoria: ${profCatForCheckbox} vs ${currentProfCat}. Abortando para segurança.`);
+            return;
+        }
+
+        const checks = Array.from(careLinesContainer.querySelectorAll('input[type="checkbox"][name="careLine"]'));
         const enabledLines = checks.filter(c => c.checked).map(c => c.value);
 
         try {
@@ -150,7 +150,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
-    // --- Modo de Inserção ---
     async function loadInsertionMode() {
         console.log("[OptionsJS] Carregando modo de inserção.");
         const data = await sendMessage({ action: "getInsertionMode" });
@@ -183,22 +182,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
-    // --- Controle de Sincronização Automática ---
     async function loadSyncEnabledState() {
         console.log("[OptionsJS] Carregando estado da sincronização automática.");
-        const data = await sendMessage({ action: "getSyncEnabled" }); // Ação a ser criada no background
+        const data = await sendMessage({ action: "getSyncEnabled" });
         console.log("[OptionsJS] Estado da sincronização recebido:", data);
         if (data && typeof data.syncEnabled === 'boolean') {
             syncEnabledCheckbox.checked = data.syncEnabled;
         } else {
-            syncEnabledCheckbox.checked = true; // Padrão para habilitado se não definido
+            syncEnabledCheckbox.checked = true;
         }
     }
 
     async function saveSyncEnabledState() {
         const isEnabled = syncEnabledCheckbox.checked;
         console.log(`[OptionsJS] Salvando estado da sincronização automática: ${isEnabled}`);
-        await sendMessage({ action: "setSyncEnabled", syncEnabled: isEnabled }); // Ação a ser criada no background
+        await sendMessage({ action: "setSyncEnabled", syncEnabled: isEnabled });
         syncEnabledStatusEl.textContent = `Sincronização automática ${isEnabled ? "habilitada" : "desabilitada"}.`;
         setTimeout(() => syncEnabledStatusEl.textContent = "", 3000);
     }
@@ -213,7 +211,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             try {
                 await sendMessage({ action: "setProfessionalCategory", category: newProfCat });
                 statusEl.textContent = `Categoria profissional definida como: ${newProfCat}`;
-                await loadCareLinesForSelectedProfCat(); // Recarrega as linhas de cuidado para a nova categoria
+                await loadCareLinesForSelectedProfCat();
                 setTimeout(() => statusEl.textContent = "", 2000);
             } catch (error) {
                 console.error("Erro ao definir categoria profissional:", error);
@@ -241,19 +239,20 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     });
 
-    // --- Inicialização ---
-    await loadProfessionalCategories(); // Isso agora também chama loadCareLinesForSelectedProfCat
+    await loadProfessionalCategories();
     await loadInsertionMode();
-    await loadSyncEnabledState(); // Carrega o estado da sincronização
+    await loadSyncEnabledState();
 
-    // Evento para o botão de abrir o editor
+    if (syncEnabledCheckbox) {
+        syncEnabledCheckbox.addEventListener("change", saveSyncEnabledState);
+    }
+
     if (openEditorBtn) {
         openEditorBtn.addEventListener("click", () => {
             chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
         });
     }
 
-    // Evento para o botão de abrir a página de teste
     if (openTestPageBtn) {
         openTestPageBtn.addEventListener("click", () => {
             chrome.tabs.create({ url: "https://pt.anotepad.com/" });
