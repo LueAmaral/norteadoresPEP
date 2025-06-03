@@ -1,86 +1,194 @@
-const STORAGE_KEY = "snippets";
-const ENABLED_CATEGORIES_KEY = "enabledCategories";
-
 document.addEventListener("DOMContentLoaded", async () => {
-    const selCat = document.getElementById("categories");
-    const listEl = document.getElementById("snippetsList");
+    const PROFESSIONAL_CATEGORY_KEY = "professionalCategory";
+    const ENABLED_CARE_LINES_KEY = "enabledCareLines";
+    const STORAGE_KEY = "snippets";
+    const LAST_SELECTED_PROF_CAT_POPUP_KEY = "lastSelectedProfCatPopup";
+    const LAST_SELECTED_CARE_LINE_POPUP_KEY = "lastSelectedCareLinePopup";
 
-    function sendMessage(message) {
-        return new Promise((resolve) => {
-            chrome.runtime.sendMessage(message, resolve);
-        });
+    const profCatSelect = document.getElementById("professionalCategorySelect");
+    const careLineSelect = document.getElementById("careLineSelect");
+    const snippetsListEl = document.getElementById("snippetsList");
+
+    let allSnippetsData = {};
+    let enabledCareLinesData = {};
+
+    async function loadProfessionalCategories() {
+        try {
+            const storage = await chrome.storage.local.get([STORAGE_KEY, LAST_SELECTED_PROF_CAT_POPUP_KEY, ENABLED_CARE_LINES_KEY]);
+            allSnippetsData = storage[STORAGE_KEY] || {};
+            enabledCareLinesData = storage[ENABLED_CARE_LINES_KEY] || {};
+            const lastSelectedProfCat = storage[LAST_SELECTED_PROF_CAT_POPUP_KEY];
+
+            const professionalCategories = Object.keys(allSnippetsData);
+            profCatSelect.innerHTML = '<option value="">Selecione...</option>';
+
+            if (professionalCategories.length === 0) {
+                snippetsListEl.innerHTML = "<li>Nenhuma categoria profissional encontrada. Sincronize ou adicione snippets.</li>";
+                careLineSelect.innerHTML = '<option value="">---</option>';
+                return;
+            }
+
+            professionalCategories.forEach(cat => {
+                const option = document.createElement("option");
+                option.value = cat;
+                option.textContent = cat;
+                profCatSelect.appendChild(option);
+            });
+
+            let categoryToLoadCareLines = null;
+            if (lastSelectedProfCat && professionalCategories.includes(lastSelectedProfCat)) {
+                profCatSelect.value = lastSelectedProfCat;
+                categoryToLoadCareLines = lastSelectedProfCat;
+            } else if (professionalCategories.length > 0) {
+                profCatSelect.value = professionalCategories[0];
+                categoryToLoadCareLines = professionalCategories[0];
+                await chrome.storage.local.set({ [LAST_SELECTED_PROF_CAT_POPUP_KEY]: categoryToLoadCareLines });
+            }
+
+            if (categoryToLoadCareLines) {
+                await loadCareLines(categoryToLoadCareLines);
+            } else {
+                careLineSelect.innerHTML = '<option value="">Selecione Categoria Prof.</option>';
+                snippetsListEl.innerHTML = "<li>Selecione uma categoria profissional.</li>";
+            }
+        } catch (error) {
+            console.error("Erro ao carregar categorias profissionais:", error);
+            snippetsListEl.innerHTML = "<li>Erro ao carregar categorias.</li>";
+        }
     }
 
-    const [storageData, lastSelectedCategory] = await Promise.all([
-        chrome.storage.local.get([STORAGE_KEY, ENABLED_CATEGORIES_KEY]),
-        sendMessage({ action: "getLastSelectedCategory" })
-    ]);
+    async function loadCareLines(professionalCategory) {
+        try {
+            const storage = await chrome.storage.local.get([LAST_SELECTED_CARE_LINE_POPUP_KEY]);
+            const lastSelectedCareLinesAllProfCats = storage[LAST_SELECTED_CARE_LINE_POPUP_KEY] || {};
+            const lastSelectedCareLineForCurrentProfCat = lastSelectedCareLinesAllProfCats[professionalCategory];
 
-    const data = storageData[STORAGE_KEY] || { categorias: {} };
-    const enabled = storageData[ENABLED_CATEGORIES_KEY] || [];
+            careLineSelect.innerHTML = '<option value="">Selecione...</option>';
 
-    Object.keys(data.categorias || {}).forEach((cat) => {
-        const opt = document.createElement("option");
-        opt.value = cat;
-        opt.textContent = cat;
-        if (!enabled.includes(cat)) {
-            opt.disabled = true;
-            opt.style.color = "#aaa";
+            if (!professionalCategory || !allSnippetsData[professionalCategory]) {
+                snippetsListEl.innerHTML = "<li>Nenhuma linha de cuidado para esta categoria.</li>";
+                careLineSelect.innerHTML = '<option value="">---</option>';
+                await renderSnippets(professionalCategory, null); // Clear snippets
+                return;
+            }
+
+            const careLinesInSnippets = Object.keys(allSnippetsData[professionalCategory]);
+            const enabledCareLinesForProfCat = enabledCareLinesData[professionalCategory] || [];
+
+            const availableCareLines = careLinesInSnippets.filter(cl => enabledCareLinesForProfCat.includes(cl));
+
+            if (availableCareLines.length === 0) {
+                snippetsListEl.innerHTML = "<li>Nenhuma linha de cuidado habilitada ou definida para esta categoria. Verifique as Opções.</li>";
+                careLineSelect.innerHTML = '<option value="">---</option>';
+                await renderSnippets(professionalCategory, null); // Clear snippets
+                return;
+            }
+
+            availableCareLines.forEach(careLineName => {
+                const option = document.createElement("option");
+                option.value = careLineName;
+                option.textContent = careLineName;
+                careLineSelect.appendChild(option);
+            });
+
+            let careLineToLoadSnippets = null;
+            if (lastSelectedCareLineForCurrentProfCat && availableCareLines.includes(lastSelectedCareLineForCurrentProfCat)) {
+                careLineSelect.value = lastSelectedCareLineForCurrentProfCat;
+                careLineToLoadSnippets = lastSelectedCareLineForCurrentProfCat;
+            } else if (availableCareLines.length > 0) {
+                careLineSelect.value = availableCareLines[0];
+                careLineToLoadSnippets = availableCareLines[0];
+                lastSelectedCareLinesAllProfCats[professionalCategory] = careLineToLoadSnippets;
+                await chrome.storage.local.set({ [LAST_SELECTED_CARE_LINE_POPUP_KEY]: lastSelectedCareLinesAllProfCats });
+            }
+
+            if (careLineToLoadSnippets) {
+                await renderSnippets(professionalCategory, careLineToLoadSnippets);
+            } else {
+                 snippetsListEl.innerHTML = "<li>Selecione uma linha de cuidado.</li>";
+            }
+
+        } catch (error) {
+            console.error(`Erro ao carregar linhas de cuidado para ${professionalCategory}:`, error);
+            snippetsListEl.innerHTML = "<li>Erro ao carregar linhas de cuidado.</li>";
         }
-        selCat.appendChild(opt);
-    });
+    }
 
-    let initialCategoryToRender = null;
+    async function renderSnippets(professionalCategory, careLineName) {
+        snippetsListEl.innerHTML = "";
 
-    if (lastSelectedCategory && enabled.includes(lastSelectedCategory) && data.categorias && data.categorias[lastSelectedCategory]) {
-        selCat.value = lastSelectedCategory;
-        initialCategoryToRender = lastSelectedCategory;
-    } else {
-        const firstEnabledOption = Array.from(selCat.options).find(opt => !opt.disabled && data.categorias && data.categorias[opt.value]);
-        if (firstEnabledOption) {
-            selCat.value = firstEnabledOption.value;
-            initialCategoryToRender = firstEnabledOption.value;
-            if (!lastSelectedCategory || !enabled.includes(lastSelectedCategory) || !(data.categorias && data.categorias[lastSelectedCategory])) {
-                sendMessage({ action: "setLastSelectedCategory", category: initialCategoryToRender });
+        if (!professionalCategory || !careLineName) {
+            snippetsListEl.innerHTML = "<li>Selecione Categoria Profissional e Linha de Cuidado.</li>";
+            return;
+        }
+
+        if (!allSnippetsData[professionalCategory] || !allSnippetsData[professionalCategory][careLineName]) {
+            snippetsListEl.innerHTML = "<li>Nenhum snippet encontrado para esta seleção.</li>";
+            return;
+        }
+
+        const snippets = allSnippetsData[professionalCategory][careLineName];
+        if (Object.keys(snippets).length === 0) {
+            snippetsListEl.innerHTML = "<li>Nenhum snippet nesta linha de cuidado.</li>";
+            return;
+        }
+
+        for (const snippetName in snippets) {
+            if (snippets.hasOwnProperty(snippetName)) {
+                const snippetData = snippets[snippetName];
+                const li = document.createElement("li");
+                li.textContent = snippetName; // Display the snippet key as its name
+
+                li.addEventListener("click", async () => {
+                    let contentToPaste = "";
+                    if (typeof snippetData === 'object' && snippetData !== null && typeof snippetData.content !== 'undefined') {
+                        contentToPaste = snippetData.content;
+                    } else if (typeof snippetData === 'string') { // Legacy format where the value is directly the content
+                        contentToPaste = snippetData;
+                    }
+
+                    try {
+                        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+                        if (tabs[0] && tabs[0].id) {
+                            await chrome.tabs.sendMessage(tabs[0].id, { action: "pasteSnippet", content: contentToPaste });
+                        }
+                        window.close();
+                    } catch (error) {
+                        console.error("Erro ao colar snippet:", error);
+                        // Optionally: display error in popup if window doesn't close
+                        // snippetsListEl.innerHTML = `<li>Erro ao colar: ${error.message}</li>`;
+                    }
+                });
+                snippetsListEl.appendChild(li);
             }
         }
     }
 
-    if (initialCategoryToRender) {
-        renderSnippets(data, initialCategoryToRender);
-    } else {
-        listEl.innerHTML = "<li>Nenhuma categoria habilitada ou snippets disponíveis. Verifique as Opções.</li>";
-    }
-
-    selCat.addEventListener("change", () => {
-        const selectedCategoryValue = selCat.value;
-        renderSnippets(data, selectedCategoryValue);
-        sendMessage({ action: "setLastSelectedCategory", category: selectedCategoryValue });
+    profCatSelect.addEventListener("change", async () => {
+        const selectedProfCat = profCatSelect.value;
+        if (selectedProfCat) {
+            await chrome.storage.local.set({ [LAST_SELECTED_PROF_CAT_POPUP_KEY]: selectedProfCat });
+            await loadCareLines(selectedProfCat);
+        } else {
+            careLineSelect.innerHTML = '<option value="">Selecione Categoria Prof.</option>';
+            snippetsListEl.innerHTML = "<li>Selecione uma categoria profissional.</li>";
+        }
     });
 
-    function renderSnippets(data, categoria) {
-        listEl.innerHTML = "";
-        if (!categoria || !data.categorias || !data.categorias[categoria]) {
-            listEl.innerHTML = "<li>Selecione uma categoria válida.</li>";
-            return;
+    careLineSelect.addEventListener("change", async () => {
+        const selectedCareLine = careLineSelect.value;
+        const selectedProfCat = profCatSelect.value;
+        if (selectedCareLine && selectedProfCat) {
+            const storageData = await chrome.storage.local.get(LAST_SELECTED_CARE_LINE_POPUP_KEY);
+            let lastSelectedCareLinesAllProfCats = storageData[LAST_SELECTED_CARE_LINE_POPUP_KEY] || {};
+            lastSelectedCareLinesAllProfCats[selectedProfCat] = selectedCareLine;
+            await chrome.storage.local.set({ [LAST_SELECTED_CARE_LINE_POPUP_KEY]: lastSelectedCareLinesAllProfCats });
+            await renderSnippets(selectedProfCat, selectedCareLine);
+        } else {
+            snippetsListEl.innerHTML = "<li>Selecione uma linha de cuidado.</li>";
         }
-        const itens = data.categorias[categoria] || [];
-        if (itens.length === 0) {
-            listEl.innerHTML = "<li>Nenhum snippet nesta categoria.</li>";
-            return;
-        }
-        itens.forEach((item) => {
-            const li = document.createElement("li");
-            li.textContent = item.nome;
-            li.addEventListener("click", () => {
-                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                    if (tabs[0] && tabs[0].id) {
-                        chrome.tabs.sendMessage(tabs[0].id, { action: "pasteSnippet", content: item.conteudo });
-                    }
-                });
-                window.close();
-            });
-            listEl.appendChild(li);
-        });
-    }
+    });
+
+    // Initial load
+    await loadProfessionalCategories();
 });

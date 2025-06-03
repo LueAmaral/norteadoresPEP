@@ -1,4 +1,3 @@
-console.log("[ContentJS] Script injetado em:", window.location.href);
 let targetElement = null;
 let customMenu = null;
 let currentInsertionMode = "both";
@@ -6,33 +5,19 @@ let pinButtons = [];
 
 const INSERTION_MODE_KEY = "insertionMode";
 
-async function showCustomMenu(textareaElement) {
-    targetElement = textareaElement;
+function createMenuElement() {
+    const menu = document.createElement("div");
+    menu.id = "snippetMasterExtensionMenu";
+    menu.classList.add("snippet-master-menu");
+    return menu;
+}
 
-    if (customMenu) {
-        customMenu.remove();
-        document.removeEventListener("click", handleClickOutsideMenu, true);
-    }
-
-    customMenu = document.createElement("div");
-    customMenu.id = "snippetMasterExtensionMenu";
-
-    customMenu.style.position = "absolute";
-    customMenu.style.backgroundColor = "#ffffff";
-    customMenu.style.border = "1px solid #162b47";
-    customMenu.style.padding = "10px";
-    customMenu.style.zIndex = "2147483647";
-    customMenu.style.color = "#384b5e";
-    customMenu.style.maxHeight = "250px";
-    customMenu.style.minWidth = "200px";
-    customMenu.style.overflowY = "auto";
-    customMenu.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
-    customMenu.style.fontSize = "10px";
-    customMenu.style.fontFamily = "Verdana, sans-serif";
-
+function positionMenu(menuElement, textareaElement) {
     const textareaRect = textareaElement.getBoundingClientRect();
-    const menuHeight = 250;
-    const menuWidth = 200;
+    // Use computed style for menu dimensions if they are set in CSS, otherwise fallback
+    const computedStyle = getComputedStyle(menuElement);
+    const menuHeight = parseInt(computedStyle.maxHeight, 10) || 250; // Fallback if not set
+    const menuWidth = parseInt(computedStyle.minWidth, 10) || 200;  // Fallback if not set
 
     let top = textareaRect.top + window.scrollY;
     let left = textareaRect.right + window.scrollX - menuWidth;
@@ -43,132 +28,142 @@ async function showCustomMenu(textareaElement) {
     }
     if (top < 0) top = 5;
     if (top + menuHeight > window.innerHeight - 5 && textareaRect.top > menuHeight) {
-        top = textareaRect.top + window.scrollY - menuHeight - 5;
+        top = textareaRect.top + window.scrollY - menuHeight - 5; // Position above if not enough space below
     } else if (top + menuHeight > window.innerHeight - 5) {
-        top = window.innerHeight - menuHeight - 5;
+        top = Math.max(5, window.innerHeight - menuHeight - 5); // Adjust if still too low, ensuring it's not off-screen
     }
 
-    customMenu.style.top = `${top}px`;
-    customMenu.style.left = `${left}px`;
+    menuElement.style.top = `${top}px`;
+    menuElement.style.left = `${left}px`;
+}
+
+function createCareLineSelect(enabledCareLinesForProfCat, lastSelectedCareLineForProfCat, snippetsForProfCat, snippetListUL, textareaElement) {
+    const careLineLabel = document.createElement("label");
+    careLineLabel.textContent = "Linha de Cuidado: ";
+    careLineLabel.classList.add("snippet-menu-label");
+
+    const careLineSelect = document.createElement("select");
+    careLineSelect.classList.add("snippet-menu-select");
+
+    enabledCareLinesForProfCat.forEach(careLineName => {
+        const option = document.createElement("option");
+        option.value = careLineName;
+        option.textContent = careLineName;
+        careLineSelect.appendChild(option);
+    });
+
+    careLineSelect.addEventListener("change", () => {
+        const newSelectedCareLine = careLineSelect.value;
+        populateSnippetsList(snippetListUL, snippetsForProfCat, newSelectedCareLine, textareaElement);
+        chrome.runtime.sendMessage({ action: "setLastSelectedCareLine", careLine: newSelectedCareLine });
+    });
+
+    if (lastSelectedCareLineForProfCat && enabledCareLinesForProfCat.includes(lastSelectedCareLineForProfCat)) {
+        careLineSelect.value = lastSelectedCareLineForProfCat;
+    } else if (enabledCareLinesForProfCat.length > 0) {
+        careLineSelect.value = enabledCareLinesForProfCat[0];
+        // Optionally, save this default selection back to storage if desired
+        // chrome.runtime.sendMessage({ action: "setLastSelectedCareLine", careLine: enabledCareLinesForProfCat[0] });
+    }
+
+    return { careLineLabel, careLineSelect };
+}
+
+function populateSnippetsList(snippetListUL, snippetsForProfCat, selectedCareLine, textareaElement) {
+    snippetListUL.innerHTML = ""; // Clear previous snippets
+    const snippets = snippetsForProfCat[selectedCareLine];
+
+    if (snippets && Object.keys(snippets).length > 0) {
+        Object.entries(snippets).forEach(([snippetName, snippetData]) => {
+            const li = document.createElement("li");
+            li.textContent = snippetName;
+            li.classList.add("snippet-menu-item");
+            li.addEventListener("click", () => {
+                let contentToPaste = "";
+                if (typeof snippetData === 'object' && snippetData !== null && typeof snippetData.content !== 'undefined') {
+                    contentToPaste = snippetData.content;
+                } else if (typeof snippetData === 'string') {
+                    contentToPaste = snippetData;
+                }
+                pasteSnippetIntoTextarea(textareaElement, contentToPaste);
+                if (customMenu) customMenu.remove();
+                document.removeEventListener("click", handleClickOutsideMenu, true);
+            });
+            snippetListUL.appendChild(li);
+        });
+    } else {
+        const li = document.createElement("li");
+        li.textContent = "Nenhum snippet para esta linha de cuidado.";
+        li.classList.add("snippet-menu-empty-item");
+        snippetListUL.appendChild(li);
+    }
+}
+
+async function showCustomMenu(textareaElement) {
+    targetElement = textareaElement;
+
+    if (customMenu) {
+        customMenu.remove();
+        document.removeEventListener("click", handleClickOutsideMenu, true);
+    }
+
+    customMenu = createMenuElement();
+    // Append to body early to allow getComputedStyle in positionMenu (if needed for dimensions)
+    document.body.appendChild(customMenu);
+    positionMenu(customMenu, textareaElement);
+
 
     chrome.runtime.sendMessage({ action: "getSnippetsDataForInPageMenu" }, (response) => {
-        if (chrome.runtime.lastError) {
-            console.error("[ContentJS - showCustomMenu] Erro ao buscar dados para o menu:", chrome.runtime.lastError.message);
-            customMenu.textContent = "Erro ao carregar snippets.";
-        } else if (response && response.error) {
-            customMenu.textContent = response.error;
-        } else if (response && response.snippetsForProfCat && response.enabledCareLinesForProfCat) {
-            const { snippetsForProfCat, enabledCareLinesForProfCat, lastSelectedCareLineForProfCat } = response;
-            if (!enabledCareLinesForProfCat || enabledCareLinesForProfCat.length === 0) {
-                customMenu.textContent = "Nenhuma linha de cuidado habilitada para sua categoria profissional. Verifique as Opções.";
-            } else {
-                customMenu.innerHTML = '';
-
-                const careLineLabel = document.createElement("label");
-                careLineLabel.textContent = "Linha de Cuidado: ";
-                careLineLabel.style.display = "block";
-                careLineLabel.style.marginBottom = "5px";
-                careLineLabel.style.color = "#162b47";
-                careLineLabel.style.fontWeight = "bold";
-                customMenu.appendChild(careLineLabel);
-
-                const careLineSelect = document.createElement("select");
-                careLineSelect.style.width = "100%";
-                careLineSelect.style.marginBottom = "10px";
-                careLineSelect.style.fontFamily = "Verdana, sans-serif";
-                careLineSelect.style.fontSize = "10px";
-                careLineSelect.style.border = "1px solid #ccc";
-                careLineSelect.style.backgroundColor = "#ffffff";
-                careLineSelect.style.color = "#384b5e";
-                careLineSelect.style.padding = "4px";
-
-                enabledCareLinesForProfCat.forEach(careLineName => {
-                    const option = document.createElement("option");
-                    option.value = careLineName;
-                    option.textContent = careLineName;
-                    careLineSelect.appendChild(option);
-                });
-                customMenu.appendChild(careLineSelect);
-
-                const snippetListUL = document.createElement("ul");
-                snippetListUL.style.listStyleType = "none";
-                snippetListUL.style.paddingLeft = "0";
-                snippetListUL.style.maxHeight = "150px";
-                snippetListUL.style.overflowY = "auto";
-                customMenu.appendChild(snippetListUL);
-
-                function populateSnippetsForCareLine(selectedCareLine) {
-                    snippetListUL.innerHTML = "";
-                    const snippets = snippetsForProfCat[selectedCareLine];
-                    if (snippets && Object.keys(snippets).length > 0) {
-                        Object.entries(snippets).forEach(([snippetName, snippetData]) => {
-                            const li = document.createElement("li");
-                            li.textContent = snippetName;
-                            li.style.padding = "6px";
-                            li.style.borderBottom = "1px solid #eeeeee";
-                            li.style.cursor = "pointer";
-                            li.style.lineHeight = "1.3";
-                            li.onmouseover = () => {
-                                li.style.backgroundColor = "rgba(0, 173, 184, 0.15)";
-                            };
-                            li.onmouseout = () => {
-                                li.style.backgroundColor = "transparent";
-                            };
-                            li.addEventListener("click", () => {
-                                let contentToPaste = "";
-                                if (typeof snippetData === 'object' && snippetData !== null && typeof snippetData.content !== 'undefined') {
-                                    contentToPaste = snippetData.content;
-                                } else if (typeof snippetData === 'string') {
-                                    contentToPaste = snippetData;
-                                } else {
-                                    console.warn("[ContentJS - showCustomMenu] Snippet format not recognized:", snippetName, snippetData);
-                                }
-                                pasteSnippetIntoTextarea(textareaElement, contentToPaste);
-                                if (customMenu) customMenu.remove();
-                                document.removeEventListener("click", handleClickOutsideMenu, true);
-                            });
-                            snippetListUL.appendChild(li);
-                        });
-                    } else {
-                        const li = document.createElement("li");
-                        li.textContent = "Nenhum snippet para esta linha de cuidado.";
-                        li.style.padding = "6px";
-                        li.style.fontStyle = "italic";
-                        snippetListUL.appendChild(li);
-                    }
-                }
-
-                careLineSelect.addEventListener("change", () => {
-                    const newSelectedCareLine = careLineSelect.value;
-                    populateSnippetsForCareLine(newSelectedCareLine);
-                    chrome.runtime.sendMessage({ action: "setLastSelectedCareLine", careLine: newSelectedCareLine });
-                });
-
-                if (lastSelectedCareLineForProfCat && enabledCareLinesForProfCat.includes(lastSelectedCareLineForProfCat)) {
-                    careLineSelect.value = lastSelectedCareLineForProfCat;
-                } else if (enabledCareLinesForProfCat.length > 0) {
-                    careLineSelect.value = enabledCareLinesForProfCat[0];
-                }
-                populateSnippetsForCareLine(careLineSelect.value);
-            }
-        } else {
-            customMenu.textContent = "Falha ao carregar snippets.";
+        if (chrome.runtime.lastError || (response && response.error)) {
+            customMenu.textContent = response && response.error ? response.error : "Erro ao carregar snippets.";
+            return;
         }
-        document.body.appendChild(customMenu);
+
+        if (response && response.snippetsForProfCat && response.enabledCareLinesForProfCat) {
+            const { snippetsForProfCat, enabledCareLinesForProfCat, lastSelectedCareLineForProfCat } = response;
+
+            if (!enabledCareLinesForProfCat || enabledCareLinesForProfCat.length === 0) {
+                customMenu.textContent = "Nenhuma linha de cuidado habilitada. Verifique as Opções.";
+                return;
+            }
+
+            customMenu.innerHTML = ''; // Clear previous content (like error messages)
+
+            const snippetListUL = document.createElement("ul");
+            snippetListUL.classList.add("snippet-menu-list");
+
+            const { careLineLabel, careLineSelect } = createCareLineSelect(
+                enabledCareLinesForProfCat,
+                lastSelectedCareLineForProfCat,
+                snippetsForProfCat, /* Pass snippetsForProfCat */
+                snippetListUL,      /* Pass snippetListUL */
+                textareaElement     /* Pass textareaElement */
+            );
+
+            customMenu.appendChild(careLineLabel);
+            customMenu.appendChild(careLineSelect);
+            customMenu.appendChild(snippetListUL);
+
+            // Initial population of snippets for the selected care line
+            populateSnippetsList(snippetListUL, snippetsForProfCat, careLineSelect.value, textareaElement);
+        } else {
+            customMenu.textContent = "Falha ao carregar snippets (resposta inesperada).";
+        }
+        // Event listener for clicks outside the menu should be added *after* menu is populated
+        // and only if it's not already added.
+        document.removeEventListener("click", handleClickOutsideMenu, true); // Remove if existing
         document.addEventListener("click", handleClickOutsideMenu, true);
     });
 }
 
 function handleClickOutsideMenu(event) {
-    if (customMenu && !customMenu.contains(event.target)) {
-        const isPinButtonClick = event.target.closest('button.snippet-pin-button');
-        if (!isPinButtonClick) {
-            customMenu.remove();
-            customMenu = null;
-            document.removeEventListener("click", handleClickOutsideMenu, true);
-        }
+    if (customMenu && !customMenu.contains(event.target) && !event.target.closest('button.snippet-pin-button')) {
+        customMenu.remove();
+        customMenu = null;
+        document.removeEventListener("click", handleClickOutsideMenu, true);
     }
 }
+
 
 function pasteSnippetIntoTextarea(elementToPasteInto, content) {
     if (elementToPasteInto) {
@@ -194,26 +189,15 @@ function injectButtons() {
             return;
         }
         el.setAttribute('data-pin-injected', 'true');
+
         const button = document.createElement("button");
-        button.innerHTML = "📌";
-        button.classList.add("snippet-pin-button");
+        button.innerHTML = "📌"; // Using an emoji/icon
+        button.classList.add("snippet-pin-button"); // Styles are in styles.css
         button.dataset.snippetButton = "true";
-        button.style.position = "absolute";
-        button.style.zIndex = "2147483640";
-        button.style.cursor = "pointer";
-        button.style.background = "transparent";
-        button.style.border = "none";
-        button.style.padding = "2px";
-        button.style.fontSize = "16px";
-        button.style.width = "24px";
-        button.style.height = "24px";
-        button.style.display = "flex";
-        button.style.alignItems = "center";
-        button.style.justifyContent = "center";
         button.setAttribute('aria-label', 'Inserir snippet');
         button.setAttribute('title', 'Inserir snippet');
 
-        const parent = el.offsetParent || document.body;
+        const parent = el.offsetParent || document.body; // Prefer offsetParent for positioning
         if (parent !== document.body && getComputedStyle(parent).position === 'static') {
             parent.style.position = 'relative';
         }
@@ -232,12 +216,15 @@ function injectButtons() {
 
 function positionPinButton(button, textarea) {
     if (!textarea.offsetParent || textarea.offsetWidth === 0 || textarea.offsetHeight === 0 || getComputedStyle(textarea).display === 'none') {
-        button.style.display = 'none';
+        button.style.display = 'none'; // Hide button if textarea is not visible
         return;
     }
-    button.style.display = 'flex';
+    button.style.display = 'flex'; // Ensure it's visible if textarea is
+
+    // Position relative to the textarea
     let top = textarea.offsetTop;
-    let left = textarea.offsetLeft + textarea.offsetWidth + 2;
+    let left = textarea.offsetLeft + textarea.offsetWidth + 2; // 2px offset from the right edge
+
     button.style.top = `${top}px`;
     button.style.left = `${left}px`;
 }
@@ -304,13 +291,21 @@ function handleTextInput(event) {
     if (commandActive) {
         if (key === "Backspace") {
             currentCommand = currentCommand.slice(0, -1);
-            if (currentCommand === "" || (currentCommand === COMMAND_TRIGGER_CHAR && (el.value ? el.value.slice(el.selectionEnd - 1, el.selectionEnd) !== COMMAND_TRIGGER_CHAR : container.textContent.slice(offset - 1, offset) !== COMMAND_TRIGGER_CHAR))) {
+            // Check if the command is now empty or just the trigger char without the trigger char actually being in the input
+            if (currentCommand === "" ||
+                (currentCommand === COMMAND_TRIGGER_CHAR &&
+                 ( (el.value && el.selectionEnd > 0 && el.value.charAt(el.selectionEnd - 1) !== COMMAND_TRIGGER_CHAR) ||
+                   (!el.value && el.isContentEditable && sel.rangeCount > 0 && sel.getRangeAt(0).startOffset > 0 && sel.getRangeAt(0).startContainer.textContent.charAt(sel.getRangeAt(0).startOffset -1) !== COMMAND_TRIGGER_CHAR )
+                 )
+                )
+            ) {
                 resetCommandState();
             }
             return;
         }
 
-        if (key.length === 1 && /[\w\d_]/.test(key)) {
+        // Allow alphanumeric and underscore for command name
+        if (key.length === 1 && /^[a-z0-9_]$/i.test(key)) {
             currentCommand += key;
             return;
         }
@@ -322,33 +317,37 @@ function handleTextInput(event) {
 
                 chrome.runtime.sendMessage({ action: "getSnippetByCommandName", command: commandName }, (response) => {
                     if (chrome.runtime.lastError) {
-                        console.error("[ContentJS] Error fetching snippet by command:", chrome.runtime.lastError.message);
+                        if (chrome.runtime.lastError || (response && response.error)) {
+                            // Optionally, notify user command failed if desired, for now just resets
+                            resetCommandState();
+                            return;
+                        }
+                        if (response && response.content) {
+                            insertTextAtCursor(el, response.content, currentCommand);
+                        }
                         resetCommandState();
-                        return;
-                    }
-                    if (response && response.content) {
-                        insertTextAtCursor(el, response.content, currentCommand);
-                    } else {
-                        console.log(`[ContentJS] Command '${commandName}' (typed as '${currentCommand}') not found.`);
-                    }
+                    });
+                } else {
+                     // Command was just "/" or empty after backspace
                     resetCommandState();
-                });
-            } else {
-                resetCommandState();
+                }
+                return; // Important to return after handling Enter/Space
             }
-            return;
-        }
-
-        if (key.length === 1 && !/[\w\d_]/.test(key) && key !== COMMAND_TRIGGER_CHAR) {
-            resetCommandState();
-        } else if (key.length > 1 && !["Shift", "Control", "Alt", "Meta", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", "Escape", "Tab"].includes(key)) {
-            resetCommandState();
-        }
-        if (key === "Escape") {
-            resetCommandState();
+            // If the key is not alphanumeric, not underscore, not Backspace, and not Enter/Space, reset.
+            // Also allow specific control keys to not reset the command state.
+            const allowedControlKeys = ["Shift", "Control", "Alt", "Meta", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", "Tab"];
+            if (key === "Escape") {
+                 resetCommandState();
+                 return;
+            }
+            if (key.length === 1 && !/^[a-z0-9_]$/i.test(key) && key !== COMMAND_TRIGGER_CHAR) {
+                 resetCommandState();
+            } else if (key.length > 1 && !allowedControlKeys.includes(key)) {
+                 resetCommandState();
+            }
         }
     }
-}
+
 
 function resetCommandState() {
     currentCommand = "";
@@ -357,7 +356,6 @@ function resetCommandState() {
 
 function insertTextAtCursor(el, textToInsert, commandTyped) {
     if (!commandTyped || commandTyped.length === 0) {
-        console.warn("[ContentJS] insertTextAtCursor called with no commandTyped. Inserting text at cursor.");
         pasteSnippetIntoTextarea(el, textToInsert);
         return;
     }
@@ -374,7 +372,6 @@ function insertTextAtCursor(el, textToInsert, commandTyped) {
             const newCursorPos = commandActualStartPos + textToInsert.length;
             el.selectionStart = el.selectionEnd = newCursorPos;
         } else {
-            console.warn(`[ContentJS] Mismatch when trying to delete command '${commandTyped}' in textarea. Expected text '${commandTyped}' not found immediately before cursor at ${selEnd}. Found: '${val.substring(commandActualStartPos, selEnd)}'. Inserting at current cursor.`);
             el.value = val.substring(0, selEnd) + textToInsert + val.substring(selEnd);
             const newCursorPos = selEnd + textToInsert.length;
             el.selectionStart = el.selectionEnd = newCursorPos;
@@ -402,7 +399,6 @@ function insertTextAtCursor(el, textToInsert, commandTyped) {
             sel.removeAllRanges();
             sel.addRange(range);
         } else {
-            console.warn("[ContentJS] Could not reliably select and delete command in contentEditable for replacement. Snippet will be inserted at current cursor.");
             document.execCommand("insertText", false, textToInsert);
         }
         if (el) el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
@@ -410,62 +406,46 @@ function insertTextAtCursor(el, textToInsert, commandTyped) {
 }
 
 function applyInsertionMode(mode) {
-    console.log(`[ContentJS] applyInsertionMode: raw mode='${mode}', typeof mode='${typeof mode}'`);
     const trimmedMode = typeof mode === 'string' ? mode.trim() : (mode || 'both');
     currentInsertionMode = trimmedMode;
-    console.log(`[ContentJS] applyInsertionMode: currentInsertionMode IS NOW '${currentInsertionMode}', typeof='${typeof currentInsertionMode}'`);
 
-    console.log("[ContentJS] Removing existing command listener (if any).");
     document.removeEventListener("keydown", handleTextInput, true);
     resetCommandState();
 
     if (observer) {
-        console.log("[ContentJS] Disconnecting observer.");
         observer.disconnect();
     }
     removeAllPinButtons();
-    console.log("[ContentJS] Removed all pin buttons.");
 
     const enablesButton = currentInsertionMode === "button" || currentInsertionMode === "both";
     const enablesCommand = currentInsertionMode === "command" || currentInsertionMode === "both";
 
-    console.log(`[ContentJS] Checking for button features: currentInsertionMode is '${currentInsertionMode}'. Enables Button? Result: ${enablesButton}`);
     if (enablesButton) {
         try {
-            console.log("[ContentJS] Attempting to INJECT pin buttons and start observer.");
             injectButtons();
             if (observer) {
                 observer.observe(document.body, { childList: true, subtree: true });
             }
-            console.log("[ContentJS] INJECTED pin buttons and started observer.");
         } catch (e) {
-            console.error("[ContentJS] Error injecting pin buttons/starting observer:", e);
         }
     }
 
-    console.log(`[ContentJS] Checking for command features: currentInsertionMode is '${currentInsertionMode}'. Enables Command? Result: ${enablesCommand}`);
     if (enablesCommand) {
         try {
-            console.log("[ContentJS] Attempting to ADD keydown listener for commands.");
             document.addEventListener("keydown", handleTextInput, true);
-            console.log("[ContentJS] ADDED keydown listener for commands.");
         } catch (e) {
-            console.error("[ContentJS] Error adding command listener:", e);
         }
     }
-    console.log(`[ContentJS] MODE APPLIED: ${currentInsertionMode}`);
 }
 
 chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
     let mode = response && response.mode ? response.mode : "both";
-    console.log("[ContentJS] Modo de inserção inicial recebido (raw):", response ? response.mode : undefined);
     applyInsertionMode(mode);
 });
 
 chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === "local" && changes[INSERTION_MODE_KEY]) {
         let newMode = changes[INSERTION_MODE_KEY].newValue;
-        console.log("[ContentJS] Mudança no modo de inserção detectada (raw):", newMode);
         applyInsertionMode(newMode);
     }
 });
