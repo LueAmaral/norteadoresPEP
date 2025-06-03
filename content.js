@@ -5,6 +5,35 @@ let currentInsertionMode = "both";
 let pinButtons = [];
 
 const INSERTION_MODE_KEY = "insertionMode";
+const ALLOWED_SITES_KEY = "allowedSites"; // Added
+
+async function initializeExtensionFeatures() {
+    console.log("[ContentJS] Initializing extension features because site is allowed.");
+
+    // Load insertion mode and apply it
+    chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
+        let mode = response && response.mode ? response.mode : "both";
+        console.log("[ContentJS] Modo de inserção inicial recebido (raw):", response ? response.mode : undefined);
+        applyInsertionMode(mode);
+    });
+
+    // Listen for changes in insertion mode
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+        if (namespace === "local" && changes[INSERTION_MODE_KEY]) {
+            let newMode = changes[INSERTION_MODE_KEY].newValue;
+            console.log("[ContentJS] Mudança no modo de inserção detectada (raw):", newMode);
+            applyInsertionMode(newMode);
+        }
+    });
+
+    // Add listeners for pin repositioning
+    window.addEventListener('scroll', repositionAllPins, true);
+    window.addEventListener('resize', repositionAllPins);
+
+    // Initial setup for buttons and observer (will be controlled by applyInsertionMode)
+    // The observer itself is started within applyInsertionMode if needed.
+}
+
 
 async function showCustomMenu(textareaElement) {
     targetElement = textareaElement;
@@ -123,7 +152,8 @@ async function showCustomMenu(textareaElement) {
                                 } else {
                                     console.warn("[ContentJS - showCustomMenu] Snippet format not recognized:", snippetName, snippetData);
                                 }
-                                pasteSnippetIntoTextarea(textareaElement, contentToPaste);
+                                // Pass isHtml flag, defaulting to false if not present
+                                pasteSnippetIntoTextarea(textareaElement, contentToPaste, snippetData.isHtml || false);
                                 if (customMenu) customMenu.remove();
                                 document.removeEventListener("click", handleClickOutsideMenu, true);
                             });
@@ -170,22 +200,48 @@ function handleClickOutsideMenu(event) {
     }
 }
 
-function pasteSnippetIntoTextarea(elementToPasteInto, content) {
-    if (elementToPasteInto) {
-        elementToPasteInto.focus();
-        if (typeof elementToPasteInto.value !== "undefined") {
-            const start = elementToPasteInto.selectionStart || 0;
-            const end = elementToPasteInto.selectionEnd || 0;
-            const currentValue = elementToPasteInto.value || "";
-            elementToPasteInto.value = currentValue.substring(0, start) + content + currentValue.substring(end);
-            const pos = start + content.length;
-            elementToPasteInto.setSelectionRange(pos, pos);
+function pasteSnippetIntoTextarea(elementToPasteInto, content, isHtml = false) {
+    if (!elementToPasteInto) return;
+
+    elementToPasteInto.focus();
+    chrome.runtime.sendMessage({ action: "getRichTextEnabled" }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error("Error getting rich text setting:", chrome.runtime.lastError.message);
+            // Fallback to plain text if error fetching setting
+            if (typeof elementToPasteInto.value !== "undefined") {
+                insertPlainText(elementToPasteInto, content);
+            } else if (elementToPasteInto.isContentEditable) {
+                document.execCommand("insertText", false, content);
+            }
+            elementToPasteInto.dispatchEvent(new Event("input", { bubbles: true }));
+            return;
+        }
+
+        const globalRichTextEnabled = response && response.enabled;
+
+        if (typeof elementToPasteInto.value !== "undefined") { // Textarea or input
+            insertPlainText(elementToPasteInto, content);
         } else if (elementToPasteInto.isContentEditable) {
-            document.execCommand("insertText", false, content);
+            if (globalRichTextEnabled && isHtml) {
+                document.execCommand("insertHTML", false, content);
+            } else { // Plain text for contentEditable, or rich text disabled globally
+                const processedContent = content.replace(/\n/g, '<br>');
+                document.execCommand("insertHTML", false, processedContent);
+            }
         }
         elementToPasteInto.dispatchEvent(new Event("input", { bubbles: true }));
-    }
+    });
 }
+
+function insertPlainText(element, text) {
+    const start = element.selectionStart || 0;
+    const end = element.selectionEnd || 0;
+    const currentValue = element.value || "";
+    element.value = currentValue.substring(0, start) + text + currentValue.substring(end);
+    const pos = start + text.length;
+    element.setSelectionRange(pos, pos);
+}
+
 
 function injectButtons() {
     const textareas = document.querySelectorAll('textarea:not([data-pin-injected="true"]), div[contenteditable="true"]:not([data-pin-injected="true"])');
@@ -310,7 +366,7 @@ function handleTextInput(event) {
             return;
         }
 
-        if (key.length === 1 && /[\w\d_]/.test(key)) {
+        if (key.length === 1 && /[\w\d_-]/.test(key)) { // Hyphen added to regex
             currentCommand += key;
             return;
         }
@@ -327,7 +383,8 @@ function handleTextInput(event) {
                         return;
                     }
                     if (response && response.content) {
-                        insertTextAtCursor(el, response.content, currentCommand);
+                        // Pass isHtml from response, default to false
+                        insertTextAtCursor(el, response.content, currentCommand, response.isHtml || false);
                     } else {
                         console.log(`[ContentJS] Command '${commandName}' (typed as '${currentCommand}') not found.`);
                     }
@@ -341,10 +398,10 @@ function handleTextInput(event) {
 
         if (key.length === 1 && !/[\w\d_]/.test(key) && key !== COMMAND_TRIGGER_CHAR) {
             resetCommandState();
-        } else if (key.length > 1 && !["Shift", "Control", "Alt", "Meta", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", "Escape", "Tab"].includes(key)) {
+        } else if (key.length > 1 && !["Shift", "Control", "Alt", "Meta", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", "Escape", "Tab"].includes(key)) { // Corrected this line
             resetCommandState();
         }
-        if (key === "Escape") {
+        if (key === "Escape") { // Corrected this line
             resetCommandState();
         }
     }
@@ -355,13 +412,17 @@ function resetCommandState() {
     commandActive = false;
 }
 
-function insertTextAtCursor(el, textToInsert, commandTyped) {
+// Added isHtml parameter with default false
+function insertTextAtCursor(el, textToInsert, commandTyped, isHtml = false) {
     if (!commandTyped || commandTyped.length === 0) {
         console.warn("[ContentJS] insertTextAtCursor called with no commandTyped. Inserting text at cursor.");
-        pasteSnippetIntoTextarea(el, textToInsert);
+        // Pass isHtml to pasteSnippetIntoTextarea
+        pasteSnippetIntoTextarea(el, textToInsert, isHtml);
         return;
     }
 
+    // For TEXTAREA or INPUT, isHtml is effectively false for insertion method.
+    // pasteSnippetIntoTextarea handles this logic internally for textareas.
     if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
         const val = el.value || "";
         const selEnd = el.selectionEnd || 0;
@@ -384,7 +445,8 @@ function insertTextAtCursor(el, textToInsert, commandTyped) {
     } else if (el.isContentEditable) {
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) {
-            document.execCommand("insertText", false, textToInsert);
+            // If no selection, fall back to pasteSnippetIntoTextarea which handles contentEditable correctly
+            pasteSnippetIntoTextarea(el, textToInsert, isHtml);
             if (el) el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
             return;
         }
@@ -392,20 +454,49 @@ function insertTextAtCursor(el, textToInsert, commandTyped) {
         const container = range.startContainer;
         const offset = range.startOffset;
 
+        // Check if the typed command is present right before the cursor
         if (range.collapsed && container.nodeType === Node.TEXT_NODE &&
             offset >= commandTyped.length &&
             container.textContent.substring(offset - commandTyped.length, offset) === commandTyped) {
-            range.setStart(container, offset - commandTyped.length);
-            range.deleteContents();
-            range.insertNode(document.createTextNode(textToInsert));
-            range.collapse(false);
-            sel.removeAllRanges();
-            sel.addRange(range);
+
+            range.setStart(container, offset - commandTyped.length); // Select the command
+            range.deleteContents(); // Delete the command
+
+            // Now insert based on isHtml and global setting
+            chrome.runtime.sendMessage({ action: "getRichTextEnabled" }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error("Error getting rich text setting in insertTextAtCursor:", chrome.runtime.lastError.message);
+                    // Fallback to plain text
+                    range.insertNode(document.createTextNode(textToInsert));
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    if (el) el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+                    return;
+                }
+
+                const globalRichTextEnabled = response && response.enabled;
+
+                if (globalRichTextEnabled && isHtml) {
+                    sel.removeAllRanges();
+                    sel.addRange(range); // Ensure range is selected before execCommand
+                    document.execCommand("insertHTML", false, textToInsert);
+                } else { // Plain text for contentEditable, or rich text disabled globally
+                    const processedText = textToInsert.replace(/\n/g, '<br>');
+                    sel.removeAllRanges();
+                    sel.addRange(range); // Ensure range is selected
+                    document.execCommand("insertHTML", false, processedText);
+                }
+                // No need to manipulate range further for collapse, execCommand handles selection.
+                if (el) el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+            });
+
         } else {
-            console.warn("[ContentJS] Could not reliably select and delete command in contentEditable for replacement. Snippet will be inserted at current cursor.");
-            document.execCommand("insertText", false, textToInsert);
+            console.warn("[ContentJS] Could not reliably select and delete command in contentEditable for replacement. Snippet will be inserted at current cursor using pasteSnippetIntoTextarea.");
+            // Fallback to pasteSnippetIntoTextarea if command matching fails
+            pasteSnippetIntoTextarea(el, textToInsert, isHtml);
         }
-        if (el) el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        // Dispatch event is now handled inside the sendMessage callback or the else block's call to pasteSnippetIntoTextarea
     }
 }
 
@@ -481,3 +572,56 @@ function repositionAllPins() {
 }
 window.addEventListener('scroll', repositionAllPins, true);
 window.addEventListener('resize', repositionAllPins);
+
+
+async function checkIfSiteIsAllowedAndInitialize() {
+    chrome.runtime.sendMessage({ action: "getAllowedSites" }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error("[ContentJS] Error fetching allowed sites:", chrome.runtime.lastError.message);
+            // Optionally, decide if you want to proceed or not in case of error.
+            // For now, let's not initialize if there's an error.
+            return;
+        }
+
+        const allowedSites = response && response.sites ? response.sites : [];
+        const currentUrl = window.location.href;
+        const currentHostname = new URL(currentUrl).hostname;
+        console.log("[ContentJS] Current Hostname:", currentHostname);
+        console.log("[ContentJS] Allowed Sites:", allowedSites);
+
+        let isAllowed = false;
+        for (const pattern of allowedSites) {
+            if (pattern.startsWith("*.")) { // Wildcard for subdomains e.g. *.example.com
+                const domain = pattern.substring(2); // Remove "*.";
+                // Matches example.com, www.example.com, sub.example.com
+                if (currentHostname === domain || currentHostname.endsWith("." + domain)) {
+                    isAllowed = true;
+                    break;
+                }
+            } else if (pattern.includes("/")) { // Full URL pattern e.g. https://mail.google.com/some/path
+                 // More specific, match origin and potentially path
+                if (currentUrl.startsWith(pattern)) {
+                    isAllowed = true;
+                    break;
+                }
+            } else { // Domain only pattern e.g. example.com or mail.google.com
+                // Matches if current hostname is exactly the pattern or a subdomain of it.
+                // e.g. pattern "google.com" should match "google.com", "mail.google.com"
+                if (currentHostname === pattern || currentHostname.endsWith("." + pattern)) {
+                    isAllowed = true;
+                    break;
+                }
+            }
+        }
+
+        if (isAllowed) {
+            console.log("[ContentJS] Site is allowed. Initializing features.");
+            initializeExtensionFeatures();
+        } else {
+            console.log("[ContentJS] Site not allowed. Extension inactive on this page.");
+        }
+    });
+}
+
+// Start the process
+checkIfSiteIsAllowedAndInitialize();

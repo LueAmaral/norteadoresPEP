@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const editSnippetTypeInput = document.getElementById("editSnippetType");
     const editSnippetCommandInput = document.getElementById("editSnippetCommand");
     const editSnippetContentInput = document.getElementById("editSnippetContent");
+    const editSnippetIsHtmlCheckbox = document.getElementById("editSnippetIsHtml"); // Added
 
     const btnSaveSnippet = document.getElementById("btnSaveSnippet");
     const btnDeleteSnippet = document.getElementById("btnDeleteSnippet");
@@ -286,9 +287,11 @@ document.addEventListener("DOMContentLoaded", () => {
             if (typeof snippetData === 'object' && snippetData !== null) {
                 editSnippetCommandInput.value = snippetData.command || "";
                 editSnippetContentInput.value = snippetData.content || "";
-            } else if (typeof snippetData === 'string') {
+                editSnippetIsHtmlCheckbox.checked = snippetData.isHtml || false; // Set checkbox
+            } else if (typeof snippetData === 'string') { // Should ideally not happen if snippets are always objects
                 editSnippetCommandInput.value = "";
                 editSnippetContentInput.value = snippetData;
+                editSnippetIsHtmlCheckbox.checked = false; // Default to false
             }
             if (btnDeleteSnippet) btnDeleteSnippet.classList.remove("hidden");
         } else {
@@ -315,6 +318,7 @@ document.addEventListener("DOMContentLoaded", () => {
         editSnippetTypeInput.value = "";
         editSnippetCommandInput.value = "";
         editSnippetContentInput.value = "";
+        editSnippetIsHtmlCheckbox.checked = false; // Reset checkbox
 
         if (btnDeleteSnippet) btnDeleteSnippet.classList.add("hidden");
         handleFormDisplay(true);
@@ -335,6 +339,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const snippetType = editSnippetTypeInput.value.trim();
             const snippetCommand = editSnippetCommandInput.value.trim();
             const snippetContent = editSnippetContentInput.value.trim();
+            const snippetIsHtml = editSnippetIsHtmlCheckbox.checked; // Get checkbox state
 
             if (!finalProfCat || !finalCareLine || !snippetType) {
                 showEditorStatus("Categoria Profissional, Linha de Cuidado e Nome/Tipo do Snippet são obrigatórios.", true, 5000);
@@ -379,7 +384,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             currentSnippets[finalProfCat][finalCareLine][snippetType] = {
                 command: snippetCommand,
-                content: snippetContent
+                content: snippetContent,
+                isHtml: snippetIsHtml // Add the isHtml flag
             };
 
             const newPath = `${finalProfCat}/${finalCareLine}/${snippetType}`;

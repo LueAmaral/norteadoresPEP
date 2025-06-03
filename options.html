@@ -78,6 +78,22 @@
         <button id="openTestPageBtn">Abrir Página de Teste</button>
     </div>
 
+    <div class="container-section">
+        <h2>Site Allowlist</h2>
+        <label for="allowlistTextarea">Enter allowed site URLs (one per line, e.g., <code>https://mail.google.com</code> or <code>example.com</code> for matching subdomains):</label>
+        <textarea id="allowlistTextarea" rows="5" style="width: 98%;"></textarea>
+        <button id="saveAllowlistBtn" style="margin-top: 10px;">Save Allowlist</button>
+        <div id="allowlistStatus" style="font-size: 0.9em; margin-top: 5px; color: green;"></div>
+    </div>
+
+    <div class="container-section">
+        <h2>Rich Text Snippets</h2>
+        <label style="font-weight: normal; display: flex; align-items: center;">
+            <input type="checkbox" id="enableRichTextCheckbox" style="margin-right: 8px;"> Enable Rich Text (HTML) for Snippets
+        </label>
+        <div id="richTextStatus" style="font-size: 0.9em; margin-top: 5px; color: green;"></div>
+    </div>
+
     <script src="options.js"></script>
 </body>
 

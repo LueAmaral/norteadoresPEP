@@ -8,6 +8,8 @@ const ENABLED_CARE_LINES_KEY = "enabledCareLines";
 const LAST_SELECTED_CARE_LINE_KEY = "lastSelectedCareLine";
 const INSERTION_MODE_KEY = "insertionMode";
 const SYNC_ENABLED_KEY = "syncEnabled";
+const ALLOWED_SITES_KEY = "allowedSites";
+const RICH_TEXT_ENABLED_KEY = "richTextEnabled";
 
 async function fetchSnippetsAndSave(isManualSync = false) {
     console.log(`[BackgroundJS] Iniciando fetchSnippetsAndSave. Manual: ${isManualSync}`);
@@ -192,8 +194,14 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             const enabledLinesForProfCat = enabledCareLines[profCat] || [];
             const snippetsForProfCat = allSnippets[profCat] || {};
             const lastSelectedCareLineForProfCat = lastSelectedCareLines[profCat] || null;
+
+            // Ensure isHtml flag is preserved if present in snippetData
+            // The current structure of snippetsForProfCat (object of carelines, which are objects of snippets)
+            // should already carry this if it's in the stored JSON.
+            // No specific transformation needed here if snippetData objects in storage already contain isHtml.
+
             respond({
-                snippetsForProfCat,
+                snippetsForProfCat, // These are objects that should include isHtml if defined
                 enabledCareLinesForProfCat: enabledLinesForProfCat,
                 lastSelectedCareLineForProfCat
             });
@@ -242,14 +250,14 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             }
 
             const snippetsForProfCat = allSnippets[profCat];
-            let foundSnippetContent = null;
+            let foundSnippetData = null; // Will store the whole snippet object
 
             function findCommand(careLineName) {
                 if (snippetsForProfCat[careLineName]) {
                     for (const snippetKey in snippetsForProfCat[careLineName]) {
                         const snippetData = snippetsForProfCat[careLineName][snippetKey];
                         if (typeof snippetData === 'object' && snippetData !== null && typeof snippetData.command === 'string' && snippetData.command.toLowerCase() === commandName) {
-                            return snippetData.content;
+                            return snippetData; // Return the whole object
                         }
                     }
                 }
@@ -258,32 +266,35 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
 
             const lastSelectedCareLine = lastSelectedCareLinesData ? lastSelectedCareLinesData[profCat] : null;
             if (lastSelectedCareLine) {
-                foundSnippetContent = findCommand(lastSelectedCareLine);
+                foundSnippetData = findCommand(lastSelectedCareLine);
             }
 
-            if (!foundSnippetContent) {
+            if (!foundSnippetData) {
                 const enabledLinesForProfCat = enabledCareLinesData && enabledCareLinesData[profCat] ? enabledCareLinesData[profCat] : [];
                 for (const careLine of enabledLinesForProfCat) {
                     if (careLine === lastSelectedCareLine) continue;
-                    foundSnippetContent = findCommand(careLine);
-                    if (foundSnippetContent) break;
+                    foundSnippetData = findCommand(careLine);
+                    if (foundSnippetData) break;
                 }
             }
 
-            if (!foundSnippetContent) {
+            if (!foundSnippetData) {
                 for (const careLine in snippetsForProfCat) {
                     if (careLine === lastSelectedCareLine) continue;
                     const enabledLinesForProfCat = enabledCareLinesData && enabledCareLinesData[profCat] ? enabledCareLinesData[profCat] : [];
                     if (enabledLinesForProfCat.includes(careLine)) continue;
 
-                    foundSnippetContent = findCommand(careLine);
-                    if (foundSnippetContent) break;
+                    foundSnippetData = findCommand(careLine);
+                    if (foundSnippetData) break;
                 }
             }
 
-            if (foundSnippetContent) {
+            if (foundSnippetData) {
                 console.log(`[BackgroundJS] Snippet encontrado para o comando '${commandName}'.`);
-                respond({ content: foundSnippetContent });
+                respond({
+                    content: foundSnippetData.content,
+                    isHtml: foundSnippetData.isHtml || false
+                });
             } else {
                 console.log(`[BackgroundJS] Snippet não encontrado para o comando '${commandName}'.`);
                 respond({ error: "Snippet não encontrado para este comando." });
@@ -335,6 +346,32 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             }
             console.log(`[BackgroundJS] Preferência de sincronização automática definida para: ${msg.syncEnabled}`);
             respond({ success: true });
+        });
+        return true;
+    } else if (msg.action === "getAllowedSites") {
+        chrome.storage.local.get([ALLOWED_SITES_KEY], (result) => {
+            if (chrome.runtime.lastError) {
+                console.error("[BackgroundJS] Error getting allowed sites:", chrome.runtime.lastError.message);
+                respond({ sites: ['https://mail.google.com', 'https://web.whatsapp.com'] }); // Default on error
+                return;
+            }
+            const sites = result[ALLOWED_SITES_KEY];
+            if (sites && Array.isArray(sites)) {
+                respond({ sites: sites.length > 0 ? sites : ['https://mail.google.com', 'https://web.whatsapp.com'] });
+            } else {
+                // If not set or not an array, provide default
+                respond({ sites: ['https://mail.google.com', 'https://web.whatsapp.com'] });
+            }
+        });
+        return true;
+    } else if (msg.action === "getRichTextEnabled") {
+        chrome.storage.local.get([RICH_TEXT_ENABLED_KEY], (result) => {
+            if (chrome.runtime.lastError) {
+                console.error("[BackgroundJS] Error getting rich text enabled setting:", chrome.runtime.lastError.message);
+                respond({ enabled: false }); // Default to false on error
+                return;
+            }
+            respond({ enabled: result[RICH_TEXT_ENABLED_KEY] || false }); // Default to false if not set
         });
         return true;
     }

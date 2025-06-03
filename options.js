@@ -3,6 +3,8 @@ const ENABLED_CARE_LINES_KEY = "enabledCareLines";
 const STORAGE_KEY = "snippets";
 const INSERTION_MODE_KEY = "insertionMode";
 const SYNC_ENABLED_KEY = "syncEnabled";
+const ALLOWED_SITES_KEY = "allowedSites";
+const RICH_TEXT_ENABLED_KEY = "richTextEnabled";
 
 document.addEventListener("DOMContentLoaded", async () => {
     const profCatSelect = document.getElementById("professionalCategorySelect");
@@ -15,6 +17,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const openTestPageBtn = document.getElementById("openTestPageBtn");
     const syncEnabledCheckbox = document.getElementById("syncEnabledCheckbox");
     const syncEnabledStatusEl = document.getElementById("syncEnabledStatus");
+    const allowlistTextarea = document.getElementById("allowlistTextarea");
+    const saveAllowlistBtn = document.getElementById("saveAllowlistBtn");
+    const allowlistStatus = document.getElementById("allowlistStatus");
+    const enableRichTextCheckbox = document.getElementById("enableRichTextCheckbox");
+    const richTextStatus = document.getElementById("richTextStatus");
 
     let allSnippetsData = {};
 
@@ -258,4 +265,80 @@ document.addEventListener("DOMContentLoaded", async () => {
             chrome.tabs.create({ url: "https://pt.anotepad.com/" });
         });
     }
+
+    async function loadAllowedSites() {
+        try {
+            const data = await chrome.storage.local.get([ALLOWED_SITES_KEY]);
+            if (data && data[ALLOWED_SITES_KEY] && data[ALLOWED_SITES_KEY].length > 0) {
+                allowlistTextarea.value = data[ALLOWED_SITES_KEY].join("\n");
+            } else {
+                // Default values if no allowlist is found or it's empty
+                allowlistTextarea.value = "https://mail.google.com\nhttps://web.whatsapp.com";
+            }
+        } catch (error) {
+            console.error("Error loading allowed sites:", error);
+            allowlistTextarea.value = "Error loading list.";
+            allowlistStatus.textContent = "Error loading allowlist.";
+            allowlistStatus.style.color = "red";
+        }
+    }
+
+    async function saveAllowedSites() {
+        const sitesString = allowlistTextarea.value;
+        const sitesArray = sitesString.split("\n")
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+
+        try {
+            await chrome.storage.local.set({ [ALLOWED_SITES_KEY]: sitesArray });
+            allowlistStatus.textContent = "Allowlist saved successfully!";
+            allowlistStatus.style.color = "green";
+            setTimeout(() => {
+                allowlistStatus.textContent = "";
+            }, 3000);
+        } catch (error) {
+            console.error("Error saving allowed sites:", error);
+            allowlistStatus.textContent = "Error saving allowlist.";
+            allowlistStatus.style.color = "red";
+        }
+    }
+
+    if (saveAllowlistBtn) {
+        saveAllowlistBtn.addEventListener("click", saveAllowedSites);
+    }
+
+    await loadAllowedSites();
+
+    async function loadRichTextSetting() {
+        try {
+            const data = await chrome.storage.local.get([RICH_TEXT_ENABLED_KEY]);
+            enableRichTextCheckbox.checked = data[RICH_TEXT_ENABLED_KEY] || false; // Default to false if not set
+        } catch (error) {
+            console.error("Error loading rich text setting:", error);
+            richTextStatus.textContent = "Error loading setting.";
+            richTextStatus.style.color = "red";
+        }
+    }
+
+    async function saveRichTextSetting() {
+        const isChecked = enableRichTextCheckbox.checked;
+        try {
+            await chrome.storage.local.set({ [RICH_TEXT_ENABLED_KEY]: isChecked });
+            richTextStatus.textContent = "Rich text setting saved!";
+            richTextStatus.style.color = "green";
+            setTimeout(() => {
+                richTextStatus.textContent = "";
+            }, 3000);
+        } catch (error) {
+            console.error("Error saving rich text setting:", error);
+            richTextStatus.textContent = "Error saving setting.";
+            richTextStatus.style.color = "red";
+        }
+    }
+
+    if (enableRichTextCheckbox) {
+        enableRichTextCheckbox.addEventListener("change", saveRichTextSetting);
+    }
+
+    await loadRichTextSetting();
 });
