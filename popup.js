@@ -13,7 +13,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const [storageData, lastSelectedCategory] = await Promise.all([
         chrome.storage.local.get([STORAGE_KEY, ENABLED_CATEGORIES_KEY]),
-        sendMessage({ action: "getLastSelectedCategory" })
+        sendMessage({ action: "getLastSelectedCategory" }),
     ]);
 
     const data = storageData[STORAGE_KEY] || { categorias: {} };
@@ -32,16 +32,31 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     let initialCategoryToRender = null;
 
-    if (lastSelectedCategory && enabled.includes(lastSelectedCategory) && data.categorias && data.categorias[lastSelectedCategory]) {
+    if (
+        lastSelectedCategory &&
+        enabled.includes(lastSelectedCategory) &&
+        data.categorias &&
+        data.categorias[lastSelectedCategory]
+    ) {
         selCat.value = lastSelectedCategory;
         initialCategoryToRender = lastSelectedCategory;
     } else {
-        const firstEnabledOption = Array.from(selCat.options).find(opt => !opt.disabled && data.categorias && data.categorias[opt.value]);
+        const firstEnabledOption = Array.from(selCat.options).find(
+            (opt) =>
+                !opt.disabled && data.categorias && data.categorias[opt.value]
+        );
         if (firstEnabledOption) {
             selCat.value = firstEnabledOption.value;
             initialCategoryToRender = firstEnabledOption.value;
-            if (!lastSelectedCategory || !enabled.includes(lastSelectedCategory) || !(data.categorias && data.categorias[lastSelectedCategory])) {
-                sendMessage({ action: "setLastSelectedCategory", category: initialCategoryToRender });
+            if (
+                !lastSelectedCategory ||
+                !enabled.includes(lastSelectedCategory) ||
+                !(data.categorias && data.categorias[lastSelectedCategory])
+            ) {
+                sendMessage({
+                    action: "setLastSelectedCategory",
+                    category: initialCategoryToRender,
+                });
             }
         }
     }
@@ -49,13 +64,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (initialCategoryToRender) {
         renderSnippets(data, initialCategoryToRender);
     } else {
-        listEl.innerHTML = "<li>Nenhuma categoria habilitada ou snippets disponíveis. Verifique as Opções.</li>";
+        listEl.innerHTML =
+            "<li>Nenhuma categoria habilitada ou snippets disponíveis. Verifique as Opções.</li>";
     }
 
     selCat.addEventListener("change", () => {
         const selectedCategoryValue = selCat.value;
         renderSnippets(data, selectedCategoryValue);
-        sendMessage({ action: "setLastSelectedCategory", category: selectedCategoryValue });
+        sendMessage({
+            action: "setLastSelectedCategory",
+            category: selectedCategoryValue,
+        });
     });
 
     function renderSnippets(data, categoria) {
@@ -73,11 +92,17 @@ document.addEventListener("DOMContentLoaded", async () => {
             const li = document.createElement("li");
             li.textContent = item.nome;
             li.addEventListener("click", () => {
-                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                    if (tabs[0] && tabs[0].id) {
-                        chrome.tabs.sendMessage(tabs[0].id, { action: "pasteSnippet", content: item.conteudo });
+                chrome.tabs.query(
+                    { active: true, currentWindow: true },
+                    (tabs) => {
+                        if (tabs[0] && tabs[0].id) {
+                            chrome.tabs.sendMessage(tabs[0].id, {
+                                action: "pasteSnippet",
+                                content: item.conteudo,
+                            });
+                        }
                     }
-                });
+                );
                 window.close();
             });
             listEl.appendChild(li);

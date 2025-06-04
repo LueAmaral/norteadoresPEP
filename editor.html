@@ -43,7 +43,6 @@
             cursor: pointer;
         }
 
-        /* Layout principal: sidebar + área de edição */
         .columns {
             display: flex;
         }
@@ -57,14 +56,12 @@
             margin-left: 20px;
         }
 
-        /* Sidebar: botões empilhados */
         #importExportSection {
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
 
-        /* Formulário em grid */
         #formFieldsContainer {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -72,13 +69,11 @@
             align-items: start;
         }
 
-        /* Textarea ocupa ambas colunas */
         #editSnippetContent {
             grid-column: 1 / -1;
             min-height: 200px;
         }
 
-        /* Botões de ação em linha e span total */
         .button-group {
             grid-column: 1 / -1;
             display: flex;
@@ -115,7 +110,6 @@
             margin-top: 10px;
         }
 
-        /* Ensure h1 inside column doesn't add excessive top margin if body already has padding */
         .column>h1:first-child {
             margin-top: 0;
         }
@@ -124,7 +118,7 @@
 
 <body>
     <div class="columns">
-        <div class="column" id="leftColumn"> <!-- Added ID for clarity if needed -->
+        <div class="column" id="leftColumn">
             <h1>Editor de Snippets</h1>
 
             <div class="container" id="importExportSection">
@@ -141,44 +135,47 @@
                 <p>Nenhum snippet definido. Adicione um novo usando o formulário.</p>
             </div>
         </div>
-        <div class="column" id="rightColumn"> <!-- Added ID for clarity if needed -->
+        <div class="column" id="rightColumn">
             <h2>Editar Snippet</h2>
             <div id="editorStatus" style="min-height: 1.5em; margin-bottom: 10px; color: green; font-weight: bold;">
             </div>
             <form id="editSnippetForm">
-                <!-- container agora é grid -->
                 <div id="formFieldsContainer" class="hidden">
-                    <!-- Categoria Profissional e nova categoria lado a lado -->
                     <label for="editProfCatSelect">Categoria Profissional:</label>
                     <select id="editProfCatSelect"></select>
                     <input type="text" id="editNewProfCatInput" placeholder="Ou digite uma nova categoria">
 
-                    <!-- Linha de Cuidado -->
                     <label for="editCareLineSelect">Linha de Cuidado:</label>
                     <select id="editCareLineSelect"></select>
                     <input type="text" id="editNewCareLineInput" placeholder="Ou digite uma nova linha de cuidado">
 
-                    <!-- Nome/Tipo e Comando lado a lado -->
                     <label for="editSnippetType">Nome/Tipo do Snippet:</label>
                     <input type="text" id="editSnippetType" placeholder="Ex: Subjetivo, Anamnese Rápida">
                     <label for="editSnippetCommand">Comando (opcional, sem '//'):</label>
                     <input type="text" id="editSnippetCommand" placeholder="Ex: subj, anam">
 
-                    <!-- Conteúdo ocupa duas colunas -->
-                    <label for="editSnippetContentPlain">Conteúdo do Snippet:</label>
-                    <textarea id="editSnippetContentPlain"></textarea>
-                    <div id="richTextToolbar" class="hidden">
-                        <button type="button" data-cmd="bold"><b>B</b></button>
-                        <button type="button" data-cmd="italic"><i>I</i></button>
-                        <button type="button" data-cmd="underline"><u>U</u></button>
-                        <button type="button" data-cmd="insertUnorderedList">• Lista</button>
-                        <button type="button" data-cmd="insertOrderedList">1. Lista</button>
+                    <div style="grid-column: span 2;">
+                        <label><input type="checkbox" id="toggleRichText"> Usar Rich Text</label>
+                        <p><small>Usar com cautela, principalmente no PEP, pois não há suporte completo.</small></p>
                     </div>
-                    <div id="editSnippetContentRich" contenteditable="true" class="hidden rich-editor"></div>
-                    <label><input type="checkbox" id="toggleRichText"> Usar Rich Text</label>
 
-                    <!-- Botões de ação ocupam toda a largura do grid -->
-                    <div class="button-group">
+                    <div style="grid-column: span 2;">
+
+                        <label for="editSnippetContentPlain">Conteúdo do Snippet:</label>
+                        <div id="richTextToolbar" class="hidden">
+                            <button type="button" data-cmd="bold"><b>B</b></button>
+                            <button type="button" data-cmd="italic"><i>I</i></button>
+                            <button type="button" data-cmd="underline"><u>U</u></button>
+                            <button type="button" data-cmd="insertUnorderedList">• Lista</button>
+                            <button type="button" data-cmd="insertOrderedList">1. Lista</button>
+                        </div>
+                        <textarea id="editSnippetContentPlain"></textarea>
+                    </div>
+
+                    <div id="editSnippetContentRich" contenteditable="true" class="hidden rich-editor"
+                        style="grid-column: span 2;"></div>
+
+                    <div class="button-group" style="grid-column: span 2;">
                         <button type="button" id="btnSaveSnippet">Salvar Snippet</button>
                         <button type="button" id="btnDeleteSnippet" class="hidden">Excluir Snippet</button>
                     </div>

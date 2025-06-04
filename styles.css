@@ -147,6 +147,7 @@ a:hover {
 
 .tree-item {
     padding: 7px 5px;
+    margin: 7px 5px;
     cursor: pointer;
 }
 
