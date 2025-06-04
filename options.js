@@ -3,6 +3,7 @@ const ENABLED_CARE_LINES_KEY = "enabledCareLines";
 const STORAGE_KEY = "snippets";
 const INSERTION_MODE_KEY = "insertionMode";
 const SYNC_ENABLED_KEY = "syncEnabled";
+const ALLOWED_SITES_KEY = "allowedSites";
 
 document.addEventListener("DOMContentLoaded", async () => {
     const profCatSelect = document.getElementById("professionalCategorySelect");
@@ -15,6 +16,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const openTestPageBtn = document.getElementById("openTestPageBtn");
     const syncEnabledCheckbox = document.getElementById("syncEnabledCheckbox");
     const syncEnabledStatusEl = document.getElementById("syncEnabledStatus");
+    const allowedSitesTextarea = document.getElementById("allowedSitesTextarea");
+    const saveAllowedSitesBtn = document.getElementById("saveAllowedSitesBtn");
+    const allowedSitesStatusEl = document.getElementById("allowedSitesStatus");
 
     let allSnippetsData = {};
 
@@ -201,6 +205,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         setTimeout(() => syncEnabledStatusEl.textContent = "", 3000);
     }
 
+    async function loadAllowedSites() {
+        const data = await sendMessage({ action: "getAllowedSites" });
+        const sites = data && Array.isArray(data.sites) ? data.sites : [];
+        allowedSitesTextarea.value = sites.join("\n");
+    }
+
+    async function saveAllowedSites() {
+        const sites = allowedSitesTextarea.value.split(/\n+/).map(s => s.trim()).filter(s => s);
+        await sendMessage({ action: "setAllowedSites", sites });
+        allowedSitesStatusEl.textContent = "Sites salvos.";
+        setTimeout(() => allowedSitesStatusEl.textContent = "", 3000);
+    }
+
     insertionModeRadios.forEach(radio => {
         radio.addEventListener("change", saveInsertionMode);
     });
@@ -242,9 +259,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadProfessionalCategories();
     await loadInsertionMode();
     await loadSyncEnabledState();
+    await loadAllowedSites();
 
     if (syncEnabledCheckbox) {
         syncEnabledCheckbox.addEventListener("change", saveSyncEnabledState);
+    }
+
+    if (saveAllowedSitesBtn) {
+        saveAllowedSitesBtn.addEventListener("click", saveAllowedSites);
     }
 
     if (openEditorBtn) {

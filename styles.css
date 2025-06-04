@@ -107,6 +107,16 @@ textarea {
     min-height: 80px;
 }
 
+.rich-editor {
+    border: 1px solid var(--border-gray);
+    min-height: 80px;
+    padding: 6px;
+    font-family: Verdana, sans-serif;
+    font-size: 10px;
+    color: var(--text-gray);
+    background-color: var(--bg-white);
+}
+
 a {
     color: var(--accent-turquoise);
     text-decoration: none;

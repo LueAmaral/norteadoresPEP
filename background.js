@@ -8,6 +8,7 @@ const ENABLED_CARE_LINES_KEY = "enabledCareLines";
 const LAST_SELECTED_CARE_LINE_KEY = "lastSelectedCareLine";
 const INSERTION_MODE_KEY = "insertionMode";
 const SYNC_ENABLED_KEY = "syncEnabled";
+const ALLOWED_SITES_KEY = "allowedSites";
 
 async function fetchSnippetsAndSave(isManualSync = false) {
     console.log(`[BackgroundJS] Iniciando fetchSnippetsAndSave. Manual: ${isManualSync}`);
@@ -242,14 +243,14 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             }
 
             const snippetsForProfCat = allSnippets[profCat];
-            let foundSnippetContent = null;
+            let foundSnippet = null;
 
             function findCommand(careLineName) {
                 if (snippetsForProfCat[careLineName]) {
                     for (const snippetKey in snippetsForProfCat[careLineName]) {
                         const snippetData = snippetsForProfCat[careLineName][snippetKey];
                         if (typeof snippetData === 'object' && snippetData !== null && typeof snippetData.command === 'string' && snippetData.command.toLowerCase() === commandName) {
-                            return snippetData.content;
+                            return snippetData;
                         }
                     }
                 }
@@ -258,32 +259,32 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
 
             const lastSelectedCareLine = lastSelectedCareLinesData ? lastSelectedCareLinesData[profCat] : null;
             if (lastSelectedCareLine) {
-                foundSnippetContent = findCommand(lastSelectedCareLine);
+                foundSnippet = findCommand(lastSelectedCareLine);
             }
 
-            if (!foundSnippetContent) {
+            if (!foundSnippet) {
                 const enabledLinesForProfCat = enabledCareLinesData && enabledCareLinesData[profCat] ? enabledCareLinesData[profCat] : [];
                 for (const careLine of enabledLinesForProfCat) {
                     if (careLine === lastSelectedCareLine) continue;
-                    foundSnippetContent = findCommand(careLine);
-                    if (foundSnippetContent) break;
+                    foundSnippet = findCommand(careLine);
+                    if (foundSnippet) break;
                 }
             }
 
-            if (!foundSnippetContent) {
+            if (!foundSnippet) {
                 for (const careLine in snippetsForProfCat) {
                     if (careLine === lastSelectedCareLine) continue;
                     const enabledLinesForProfCat = enabledCareLinesData && enabledCareLinesData[profCat] ? enabledCareLinesData[profCat] : [];
                     if (enabledLinesForProfCat.includes(careLine)) continue;
 
-                    foundSnippetContent = findCommand(careLine);
-                    if (foundSnippetContent) break;
+                    foundSnippet = findCommand(careLine);
+                    if (foundSnippet) break;
                 }
             }
 
-            if (foundSnippetContent) {
+            if (foundSnippet) {
                 console.log(`[BackgroundJS] Snippet encontrado para o comando '${commandName}'.`);
-                respond({ content: foundSnippetContent });
+                respond({ content: foundSnippet.content, richText: !!foundSnippet.richText });
             } else {
                 console.log(`[BackgroundJS] Snippet não encontrado para o comando '${commandName}'.`);
                 respond({ error: "Snippet não encontrado para este comando." });
@@ -334,6 +335,23 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                 return;
             }
             console.log(`[BackgroundJS] Preferência de sincronização automática definida para: ${msg.syncEnabled}`);
+            respond({ success: true });
+        });
+        return true;
+    } else if (msg.action === "getAllowedSites") {
+        chrome.storage.local.get(ALLOWED_SITES_KEY, (result) => {
+            respond({ sites: result[ALLOWED_SITES_KEY] || [] });
+        });
+        return true;
+    } else if (msg.action === "setAllowedSites") {
+        const sites = Array.isArray(msg.sites) ? msg.sites : [];
+        chrome.storage.local.set({ [ALLOWED_SITES_KEY]: sites }, () => {
+            if (chrome.runtime.lastError) {
+                console.error("[BackgroundJS] Erro em setAllowedSites:", chrome.runtime.lastError.message);
+                respond({ success: false, error: chrome.runtime.lastError.message });
+                return;
+            }
+            console.log("[BackgroundJS] Lista de sites permitidos salva:", sites);
             respond({ success: true });
         });
         return true;

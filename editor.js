@@ -11,7 +11,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const editNewCareLineInput = document.getElementById("editNewCareLineInput");
     const editSnippetTypeInput = document.getElementById("editSnippetType");
     const editSnippetCommandInput = document.getElementById("editSnippetCommand");
-    const editSnippetContentInput = document.getElementById("editSnippetContent");
+    const editSnippetContentPlain = document.getElementById("editSnippetContentPlain");
+    const editSnippetContentRich = document.getElementById("editSnippetContentRich");
+    const toggleRichText = document.getElementById("toggleRichText");
+    const richTextToolbar = document.getElementById("richTextToolbar");
 
     const btnSaveSnippet = document.getElementById("btnSaveSnippet");
     const btnDeleteSnippet = document.getElementById("btnDeleteSnippet");
@@ -285,16 +288,36 @@ document.addEventListener("DOMContentLoaded", () => {
             editSnippetTypeInput.value = snippetName;
             if (typeof snippetData === 'object' && snippetData !== null) {
                 editSnippetCommandInput.value = snippetData.command || "";
-                editSnippetContentInput.value = snippetData.content || "";
+                if (snippetData.richText) {
+                    toggleRichText.checked = true;
+                    editSnippetContentRich.innerHTML = snippetData.content || "";
+                    editSnippetContentPlain.style.display = "none";
+                    richTextToolbar.classList.remove("hidden");
+                    editSnippetContentRich.classList.remove("hidden");
+                } else {
+                    toggleRichText.checked = false;
+                    editSnippetContentPlain.value = snippetData.content || "";
+                    editSnippetContentPlain.style.display = "block";
+                    richTextToolbar.classList.add("hidden");
+                    editSnippetContentRich.classList.add("hidden");
+                }
             } else if (typeof snippetData === 'string') {
                 editSnippetCommandInput.value = "";
-                editSnippetContentInput.value = snippetData;
+                toggleRichText.checked = false;
+                editSnippetContentPlain.value = snippetData;
+                editSnippetContentPlain.style.display = "block";
+                richTextToolbar.classList.add("hidden");
+                editSnippetContentRich.classList.add("hidden");
             }
             if (btnDeleteSnippet) btnDeleteSnippet.classList.remove("hidden");
         } else {
             editSnippetTypeInput.value = "";
             editSnippetCommandInput.value = "";
-            editSnippetContentInput.value = "";
+            toggleRichText.checked = false;
+            editSnippetContentPlain.value = "";
+            editSnippetContentPlain.style.display = "block";
+            richTextToolbar.classList.add("hidden");
+            editSnippetContentRich.classList.add("hidden");
             if (btnDeleteSnippet) btnDeleteSnippet.classList.add("hidden");
         }
     }
@@ -314,7 +337,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         editSnippetTypeInput.value = "";
         editSnippetCommandInput.value = "";
-        editSnippetContentInput.value = "";
+        editSnippetContentPlain.value = "";
+        toggleRichText.checked = false;
+        editSnippetContentPlain.style.display = "block";
+        richTextToolbar.classList.add("hidden");
+        editSnippetContentRich.classList.add("hidden");
 
         if (btnDeleteSnippet) btnDeleteSnippet.classList.add("hidden");
         handleFormDisplay(true);
@@ -326,6 +353,32 @@ document.addEventListener("DOMContentLoaded", () => {
         btnClearForm.addEventListener("click", clearAndPrepareFormForNew);
     }
 
+    if (toggleRichText) {
+        toggleRichText.addEventListener("change", () => {
+            if (toggleRichText.checked) {
+                editSnippetContentRich.innerHTML = editSnippetContentPlain.value.replace(/\n/g, '<br>');
+                editSnippetContentPlain.style.display = "none";
+                richTextToolbar.classList.remove("hidden");
+                editSnippetContentRich.classList.remove("hidden");
+            } else {
+                editSnippetContentPlain.value = editSnippetContentRich.innerHTML.replace(/<br>/g, '\n');
+                editSnippetContentPlain.style.display = "block";
+                richTextToolbar.classList.add("hidden");
+                editSnippetContentRich.classList.add("hidden");
+            }
+        });
+    }
+
+    if (richTextToolbar) {
+        richTextToolbar.addEventListener("click", (e) => {
+            const cmd = e.target.dataset.cmd;
+            if (cmd) {
+                document.execCommand(cmd, false, null);
+                editSnippetContentRich.focus();
+            }
+        });
+    }
+
     if (btnSaveSnippet) {
         btnSaveSnippet.addEventListener("click", async () => {
             const originalPathOfEditingSnippet = selectedItemPath;
@@ -334,7 +387,12 @@ document.addEventListener("DOMContentLoaded", () => {
             let finalCareLine = editCareLineSelect.value === ADD_NEW_VALUE ? editNewCareLineInput.value.trim() : editCareLineSelect.value;
             const snippetType = editSnippetTypeInput.value.trim();
             const snippetCommand = editSnippetCommandInput.value.trim();
-            const snippetContent = editSnippetContentInput.value.trim();
+            const commandPattern = /^[A-Za-z0-9_-]+$/;
+            if (snippetCommand && !commandPattern.test(snippetCommand)) {
+                showEditorStatus("Comando inválido. Use apenas letras, números, '-' e '_' e não inclua '//'.", true, 5000);
+                return;
+            }
+            const snippetContent = toggleRichText.checked ? editSnippetContentRich.innerHTML.trim() : editSnippetContentPlain.value.trim();
 
             if (!finalProfCat || !finalCareLine || !snippetType) {
                 showEditorStatus("Categoria Profissional, Linha de Cuidado e Nome/Tipo do Snippet são obrigatórios.", true, 5000);
@@ -379,7 +437,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             currentSnippets[finalProfCat][finalCareLine][snippetType] = {
                 command: snippetCommand,
-                content: snippetContent
+                content: snippetContent,
+                richText: toggleRichText.checked
             };
 
             const newPath = `${finalProfCat}/${finalCareLine}/${snippetType}`;

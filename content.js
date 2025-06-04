@@ -5,6 +5,7 @@ let currentInsertionMode = "both";
 let pinButtons = [];
 
 const INSERTION_MODE_KEY = "insertionMode";
+const ALLOWED_SITES_KEY = "allowedSites";
 
 async function showCustomMenu(textareaElement) {
     targetElement = textareaElement;
@@ -181,7 +182,7 @@ function pasteSnippetIntoTextarea(elementToPasteInto, content) {
             const pos = start + content.length;
             elementToPasteInto.setSelectionRange(pos, pos);
         } else if (elementToPasteInto.isContentEditable) {
-            document.execCommand("insertText", false, content);
+            document.execCommand("insertHTML", false, content.replace(/\n/g, '<br>'));
         }
         elementToPasteInto.dispatchEvent(new Event("input", { bubbles: true }));
     }
@@ -277,6 +278,7 @@ const observer = new MutationObserver((mutationsList) => {
 const COMMAND_TRIGGER_CHAR = "/";
 let currentCommand = "";
 let commandActive = false;
+let lastKeyWasSlash = false;
 
 function handleTextInput(event) {
     const el = event.target;
@@ -296,29 +298,36 @@ function handleTextInput(event) {
     }
 
     if (key === COMMAND_TRIGGER_CHAR && !commandActive) {
-        currentCommand = key;
-        commandActive = true;
+        if (lastKeyWasSlash) {
+            currentCommand = "//";
+            commandActive = true;
+            lastKeyWasSlash = false;
+        } else {
+            lastKeyWasSlash = true;
+        }
         return;
+    } else {
+        lastKeyWasSlash = false;
     }
 
     if (commandActive) {
         if (key === "Backspace") {
             currentCommand = currentCommand.slice(0, -1);
-            if (currentCommand === "" || (currentCommand === COMMAND_TRIGGER_CHAR && (el.value ? el.value.slice(el.selectionEnd - 1, el.selectionEnd) !== COMMAND_TRIGGER_CHAR : container.textContent.slice(offset - 1, offset) !== COMMAND_TRIGGER_CHAR))) {
+            if (currentCommand.length < 2) {
                 resetCommandState();
             }
             return;
         }
 
-        if (key.length === 1 && /[\w\d_]/.test(key)) {
+        if (key.length === 1 && /[\w\d_-]/.test(key)) {
             currentCommand += key;
             return;
         }
 
         if (key === " " || key === "Enter") {
-            if (currentCommand.length > 1) {
+            if (currentCommand.length > 2) {
                 event.preventDefault();
-                const commandName = currentCommand.slice(1).toLowerCase();
+                const commandName = currentCommand.slice(2).toLowerCase();
 
                 chrome.runtime.sendMessage({ action: "getSnippetByCommandName", command: commandName }, (response) => {
                     if (chrome.runtime.lastError) {
@@ -327,7 +336,7 @@ function handleTextInput(event) {
                         return;
                     }
                     if (response && response.content) {
-                        insertTextAtCursor(el, response.content, currentCommand);
+                        insertTextAtCursor(el, response.content, currentCommand, response.richText);
                     } else {
                         console.log(`[ContentJS] Command '${commandName}' (typed as '${currentCommand}') not found.`);
                     }
@@ -339,7 +348,7 @@ function handleTextInput(event) {
             return;
         }
 
-        if (key.length === 1 && !/[\w\d_]/.test(key) && key !== COMMAND_TRIGGER_CHAR) {
+        if (key.length === 1 && !/[\w\d_-]/.test(key) && key !== COMMAND_TRIGGER_CHAR) {
             resetCommandState();
         } else if (key.length > 1 && !["Shift", "Control", "Alt", "Meta", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", "Escape", "Tab"].includes(key)) {
             resetCommandState();
@@ -355,12 +364,14 @@ function resetCommandState() {
     commandActive = false;
 }
 
-function insertTextAtCursor(el, textToInsert, commandTyped) {
+function insertTextAtCursor(el, textToInsert, commandTyped, isRich) {
     if (!commandTyped || commandTyped.length === 0) {
         console.warn("[ContentJS] insertTextAtCursor called with no commandTyped. Inserting text at cursor.");
         pasteSnippetIntoTextarea(el, textToInsert);
         return;
     }
+
+    const htmlVersion = isRich ? textToInsert : textToInsert.replace(/\n/g, '<br>');
 
     if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
         const val = el.value || "";
@@ -384,7 +395,7 @@ function insertTextAtCursor(el, textToInsert, commandTyped) {
     } else if (el.isContentEditable) {
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) {
-            document.execCommand("insertText", false, textToInsert);
+            document.execCommand("insertHTML", false, htmlVersion);
             if (el) el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
             return;
         }
@@ -397,13 +408,18 @@ function insertTextAtCursor(el, textToInsert, commandTyped) {
             container.textContent.substring(offset - commandTyped.length, offset) === commandTyped) {
             range.setStart(container, offset - commandTyped.length);
             range.deleteContents();
-            range.insertNode(document.createTextNode(textToInsert));
+            const html = htmlVersion;
+            const temp = document.createElement('div');
+            temp.innerHTML = html;
+            const frag = document.createDocumentFragment();
+            while (temp.firstChild) frag.appendChild(temp.firstChild);
+            range.insertNode(frag);
             range.collapse(false);
             sel.removeAllRanges();
             sel.addRange(range);
         } else {
             console.warn("[ContentJS] Could not reliably select and delete command in contentEditable for replacement. Snippet will be inserted at current cursor.");
-            document.execCommand("insertText", false, textToInsert);
+            document.execCommand("insertHTML", false, htmlVersion);
         }
         if (el) el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
     }
@@ -456,28 +472,40 @@ function applyInsertionMode(mode) {
     console.log(`[ContentJS] MODE APPLIED: ${currentInsertionMode}`);
 }
 
-chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
-    let mode = response && response.mode ? response.mode : "both";
-    console.log("[ContentJS] Modo de inserção inicial recebido (raw):", response ? response.mode : undefined);
-    applyInsertionMode(mode);
-});
+function initAfterAllowed() {
+    chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
+        let mode = response && response.mode ? response.mode : "both";
+        console.log("[ContentJS] Modo de inserção inicial recebido (raw):", response ? response.mode : undefined);
+        applyInsertionMode(mode);
+    });
 
-chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === "local" && changes[INSERTION_MODE_KEY]) {
-        let newMode = changes[INSERTION_MODE_KEY].newValue;
-        console.log("[ContentJS] Mudança no modo de inserção detectada (raw):", newMode);
-        applyInsertionMode(newMode);
-    }
-});
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+        if (namespace === "local" && changes[INSERTION_MODE_KEY]) {
+            let newMode = changes[INSERTION_MODE_KEY].newValue;
+            console.log("[ContentJS] Mudança no modo de inserção detectada (raw):", newMode);
+            applyInsertionMode(newMode);
+        }
+    });
 
-function repositionAllPins() {
-    if (currentInsertionMode === "button" || currentInsertionMode === "both") {
-        pinButtons.forEach(pb => {
-            if (document.body.contains(pb.textarea) && document.body.contains(pb.button)) {
-                positionPinButton(pb.button, pb.textarea);
-            }
-        });
+    function repositionAllPins() {
+        if (currentInsertionMode === "button" || currentInsertionMode === "both") {
+            pinButtons.forEach(pb => {
+                if (document.body.contains(pb.textarea) && document.body.contains(pb.button)) {
+                    positionPinButton(pb.button, pb.textarea);
+                }
+            });
+        }
     }
+    window.addEventListener('scroll', repositionAllPins, true);
+    window.addEventListener('resize', repositionAllPins);
 }
-window.addEventListener('scroll', repositionAllPins, true);
-window.addEventListener('resize', repositionAllPins);
+
+chrome.storage.local.get(ALLOWED_SITES_KEY, (res) => {
+    const allowed = res[ALLOWED_SITES_KEY] || [];
+    const host = window.location.hostname;
+    if (allowed.length > 0 && !allowed.some(s => host.includes(s))) {
+        console.log(`[ContentJS] Site '${host}' não está na lista de permitidos. Extensão desativada.`);
+        return;
+    }
+    initAfterAllowed();
+});

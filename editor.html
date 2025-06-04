@@ -161,12 +161,21 @@
                     <!-- Nome/Tipo e Comando lado a lado -->
                     <label for="editSnippetType">Nome/Tipo do Snippet:</label>
                     <input type="text" id="editSnippetType" placeholder="Ex: Subjetivo, Anamnese Rápida">
-                    <label for="editSnippetCommand">Comando (opcional, sem '/'):</label>
+                    <label for="editSnippetCommand">Comando (opcional, sem '//'):</label>
                     <input type="text" id="editSnippetCommand" placeholder="Ex: subj, anam">
 
                     <!-- Conteúdo ocupa duas colunas -->
-                    <label for="editSnippetContent">Conteúdo do Snippet:</label>
-                    <textarea id="editSnippetContent"></textarea>
+                    <label for="editSnippetContentPlain">Conteúdo do Snippet:</label>
+                    <textarea id="editSnippetContentPlain"></textarea>
+                    <div id="richTextToolbar" class="hidden">
+                        <button type="button" data-cmd="bold"><b>B</b></button>
+                        <button type="button" data-cmd="italic"><i>I</i></button>
+                        <button type="button" data-cmd="underline"><u>U</u></button>
+                        <button type="button" data-cmd="insertUnorderedList">• Lista</button>
+                        <button type="button" data-cmd="insertOrderedList">1. Lista</button>
+                    </div>
+                    <div id="editSnippetContentRich" contenteditable="true" class="hidden rich-editor"></div>
+                    <label><input type="checkbox" id="toggleRichText"> Usar Rich Text</label>
 
                     <!-- Botões de ação ocupam toda a largura do grid -->
                     <div class="button-group">
