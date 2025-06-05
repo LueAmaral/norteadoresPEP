@@ -147,7 +147,7 @@ a:hover {
 
 .tree-item {
     padding: 7px 5px;
-    margin: 7px 5px;
+    margin: 12px 5px;
     cursor: pointer;
 }
 
@@ -223,4 +223,95 @@ input[type="radio"] {
 
 .options-column-right #careLinesContainer {
     width: 100%;
+}
+
+/* page-specific layouts */
+.options-page {
+    width: 700px;
+    padding: 15px;
+    margin: auto;
+}
+
+.editor-page {
+    width: 850px;
+    padding: 20px;
+    margin: auto;
+}
+
+.editor-page .columns {
+    display: flex;
+}
+
+.editor-page #leftColumn {
+    width: 250px;
+}
+
+.editor-page #rightColumn {
+    flex: 1;
+    margin-left: 20px;
+}
+
+.editor-page #importExportSection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.editor-page #formFieldsContainer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    align-items: start;
+}
+
+.editor-page #editSnippetContent {
+    grid-column: 1 / -1;
+    min-height: 200px;
+}
+
+.editor-page .button-group {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+}
+
+.editor-page #snippetsTreeView {
+    border: 1px solid var(--border-gray);
+    padding: 10px;
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.editor-page #importExportSection button {
+    margin-top: 10px;
+}
+
+.editor-page .column > h1:first-child {
+    margin-top: 0;
+}
+
+.popup-page {
+    width: 300px;
+    padding: 10px;
+}
+
+.popup-page select,
+.popup-page ul {
+    width: 100%;
+    margin-top: 8px;
+}
+
+.popup-page li {
+    cursor: pointer;
+    padding: 6px;
+    border-bottom: 1px solid #ddd;
+}
+
+.popup-page li:hover {
+    background-color: var(--hover-light-gray);
+}
+
+.popup-page .disabled {
+    color: #aaa;
 }
