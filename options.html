@@ -58,7 +58,7 @@
                 texto)
             </label>
             <label>
-                <input type="radio" name="insertionMode" value="command"> Inserir com Comando (ex: /meu_snippet)
+                <input type="radio" name="insertionMode" value="command"> Inserir com Comando (ex: //meu_snippet)
             </label>
             <label>
                 <input type="radio" name="insertionMode" value="both" checked> Ambos (Botão e Comando)
@@ -71,7 +71,12 @@
         </div>
     </div>
 
-
+    <div class="container-section">
+        <h4>Sites Permitidos</h4>
+        <textarea id="allowedSitesTextarea" placeholder="Ex: mail.google.com"></textarea>
+        <button id="saveAllowedSitesBtn">Salvar Sites</button>
+        <div id="allowedSitesStatus" style="font-size: 0.9em; margin-top: 5px; color: green;"></div>
+    </div>
 
     <div class="container-section">
         <h4>Página de Teste</h4>
