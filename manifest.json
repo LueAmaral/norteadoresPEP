@@ -4,7 +4,8 @@
     "version": "1.0",
     "description": "Cole rapidamente norteadores de atendimento via atalho ou botão.",
     "action": {
-        "default_title": "Norteadores de Atendimento"
+        "default_title": "Norteadores de Atendimento",
+        "default_popup": "popup.html"
     },
     "permissions": [
         "storage",

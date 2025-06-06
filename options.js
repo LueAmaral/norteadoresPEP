@@ -350,7 +350,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (openEditorBtn) {
         openEditorBtn.addEventListener("click", () => {
-            chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
+            window.location.href = 'editor.html';
         });
     }
 

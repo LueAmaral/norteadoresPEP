@@ -276,11 +276,12 @@ function injectButtons() {
         button.style.position = "absolute";
 
         // Dynamically set z-index
-        const elementZIndex = parseInt(window.getComputedStyle(el).zIndex, 10);
-        if (!isNaN(elementZIndex)) {
-            button.style.zIndex = elementZIndex + 1;
+        const computedZIndex = window.getComputedStyle(el).zIndex;
+        const elementZIndexNumber = parseInt(computedZIndex, 10);
+        if (!isNaN(elementZIndexNumber)) {
+            button.style.zIndex = elementZIndexNumber + 1;
         } else {
-            button.style.zIndex = "2147483640"; // Default z-index
+            button.style.zIndex = 1; // Default z-index if element's zIndex is 'auto' or not a number
         }
 
         button.style.cursor = "pointer";
