@@ -261,13 +261,28 @@ function injectButtons() {
         ) {
             return;
         }
+
+        // Check if the element is disabled
+        if (el.disabled || el.hasAttribute('disabled')) {
+            console.log("[ContentJS] Skipping disabled element:", el);
+            return;
+        }
+
         el.setAttribute("data-pin-injected", "true");
         const button = document.createElement("button");
         button.innerHTML = "📌";
         button.classList.add("snippet-pin-button");
         button.dataset.snippetButton = "true";
         button.style.position = "absolute";
-        button.style.zIndex = "2147483640";
+
+        // Dynamically set z-index
+        const elementZIndex = parseInt(window.getComputedStyle(el).zIndex, 10);
+        if (!isNaN(elementZIndex)) {
+            button.style.zIndex = elementZIndex + 1;
+        } else {
+            button.style.zIndex = "2147483640"; // Default z-index
+        }
+
         button.style.cursor = "pointer";
         button.style.background = "transparent";
         button.style.border = "none";
