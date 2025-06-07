@@ -17,7 +17,9 @@ async function fetchSnippetsAndSave(isManualSync = false) {
     );
 
     if (!isManualSync) {
+        console.log("[BG_FETCH] Step 0: Checking syncEnabled. Getting SYNC_ENABLED_KEY for automatic sync check.");
         const syncSettings = await chrome.storage.local.get(SYNC_ENABLED_KEY);
+        console.log("[BG_FETCH] Step 0a: SYNC_ENABLED_KEY for automatic sync check retrieved:", syncSettings);
         const syncEnabled =
             syncSettings[SYNC_ENABLED_KEY] !== undefined
                 ? syncSettings[SYNC_ENABLED_KEY]
@@ -31,51 +33,67 @@ async function fetchSnippetsAndSave(isManualSync = false) {
     }
 
     try {
+        console.log("[BG_FETCH] Step 2: Calling fetch(GITHUB_RAW_URL)");
         const response = await fetch(GITHUB_RAW_URL);
+        console.log("[BG_FETCH] Step 2a: fetch response received, status:", response.status);
+
         if (!response.ok) {
             console.error(
                 `[BackgroundJS] Erro HTTP ao buscar snippets: ${response.status}`
             );
             throw new Error(`Erro HTTP: ${response.status}`);
         }
-        const snippetsData = await response.json();
-        await chrome.storage.local.set({ [STORAGE_KEY]: snippetsData });
-        console.log(
-            "[BackgroundJS] Snippets buscados e salvos com sucesso do GitHub."
-        );
 
-        const { [ENABLED_CARE_LINES_KEY]: existingEnabledCareLines } =
-            await chrome.storage.local.get(ENABLED_CARE_LINES_KEY);
+        console.log("[BG_FETCH] Step 3: Calling response.json()");
+        const snippetsData = await response.json();
+        console.log("[BG_FETCH] Step 3a: response.json() parsed");
+
+        console.log("[BG_FETCH] Step 4: Setting STORAGE_KEY with snippetsData");
+        await chrome.storage.local.set({ [STORAGE_KEY]: snippetsData });
+        console.log("[BG_FETCH] Step 4a: STORAGE_KEY set");
+        // console.log( // Commented out original log, replaced by step 4a
+        //     "[BackgroundJS] Snippets buscados e salvos com sucesso do GitHub."
+        // );
+
+        console.log("[BG_FETCH] Step 5: Getting ENABLED_CARE_LINES_KEY");
+        const careLinesData = await chrome.storage.local.get(ENABLED_CARE_LINES_KEY); // Store the whole result
+        const existingEnabledCareLines = careLinesData[ENABLED_CARE_LINES_KEY]; // Extract the specific key
+        console.log("[BG_FETCH] Step 5a: ENABLED_CARE_LINES_KEY retrieved:", existingEnabledCareLines);
+
         let forceEnable = false;
         if (
             !existingEnabledCareLines ||
-            Array.isArray(existingEnabledCareLines) || // This condition might be too broad if {} is valid but [] is not
+            Array.isArray(existingEnabledCareLines) ||
             (typeof existingEnabledCareLines === "object" &&
                 existingEnabledCareLines === null) ||
             typeof existingEnabledCareLines !== "object"
         ) {
             console.log(
-                "[BackgroundJS - fetchSnippetsAndSave] Forçando a habilitação de todas as linhas de cuidado: existingEnabledCareLines está ausente, é array, null ou não é objeto.",
+                "[BG_FETCH] forceEnable logic: existingEnabledCareLines is invalid or missing.",
                 existingEnabledCareLines
             );
             forceEnable = true;
         } else {
             console.log(
-                "[BackgroundJS - fetchSnippetsAndSave] existingEnabledCareLines é um objeto válido. Sincronização normal.",
+                "[BG_FETCH] forceEnable logic: existingEnabledCareLines is valid.",
                 existingEnabledCareLines
             );
         }
 
+        console.log("[BG_FETCH] Step 6: Calling updateEnabledCareLinesOnSnippetsChange");
         await updateEnabledCareLinesOnSnippetsChange(snippetsData, forceEnable);
+        console.log("[BG_FETCH] Step 6a: updateEnabledCareLinesOnSnippetsChange finished");
 
         // chrome.notifications.create call REMOVED from here
         console.log("[BackgroundJS] Sincronização Concluída (notificação removida).");
         return true;
     } catch (e) {
         console.error(
-            "[BackgroundJS] Erro detalhado em fetchSnippetsAndSave:",
+            "[BackgroundJS] Erro detalhado em fetchSnippetsAndSave (com logs granulares):",
             e
         );
+        if (e && e.message) console.error("[BG_FETCH_ERROR] Message:", e.message);
+        if (e && e.stack) console.error("[BG_FETCH_ERROR] Stack:", e.stack);
         // chrome.notifications.create call REMOVED from here
         console.log("[BackgroundJS] Falha na Sincronização (notificação removida).");
         return false;
