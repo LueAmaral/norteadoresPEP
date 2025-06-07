@@ -68,12 +68,24 @@ async function fetchSnippetsAndSave(isManualSync = false) {
 
         await updateEnabledCareLinesOnSnippetsChange(snippetsData, forceEnable);
 
+        chrome.notifications.create({
+            type: "basic",
+            iconUrl: "icon.png",
+            title: "Sincronização Concluída",
+            message: "Os snippets foram sincronizados com sucesso do GitHub.",
+        });
         return true;
     } catch (e) {
         console.error(
             "[BackgroundJS] Erro detalhado em fetchSnippetsAndSave:",
             e
         );
+        chrome.notifications.create({
+            type: "basic",
+            iconUrl: "icon.png",
+            title: "Falha na Sincronização",
+            message: `Não foi possível sincronizar os snippets: ${e.message}`,
+        });
         return false;
     }
 }
@@ -84,8 +96,16 @@ chrome.runtime.onInstalled.addListener((details) => {
         details
     );
 
-    chrome.alarms.create("sync-snippets", { periodInMinutes: 1440 });
-    console.log("[BackgroundJS - onInstalled] Alarme 'sync-snippets' criado.");
+    try {
+        if (chrome.alarms) {
+            chrome.alarms.create("sync-snippets", { periodInMinutes: 1440 });
+            console.log("[BackgroundJS - onInstalled] Alarme 'sync-snippets' criado.");
+        } else {
+            console.error("[BackgroundJS - onInstalled] chrome.alarms API not available.");
+        }
+    } catch (e) {
+        console.error("[BackgroundJS - onInstalled] Error during alarm setup:", e);
+    }
 
     chrome.storage.local.get(SYNC_ENABLED_KEY, (result) => {
         if (result[SYNC_ENABLED_KEY] === undefined) {
