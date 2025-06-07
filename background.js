@@ -1,8 +1,8 @@
 const GITHUB_RAW_URL =
     "https://raw.githubusercontent.com/LueAmaral/norteadoresPEP/refs/heads/main/snippets.json";
 const STORAGE_KEY = "snippets";
-const ENABLED_CATEGORIES_KEY = "enabledCategories";
-const LAST_SELECTED_CATEGORY_KEY = "lastSelectedCategory";
+const ENABLED_CATEGORIES_KEY = "enabledCategories"; // Note: This key seems unused in favor of ENABLED_CARE_LINES_KEY for actual logic
+const LAST_SELECTED_CATEGORY_KEY = "lastSelectedCategory"; // Note: This key seems unused
 
 const PROFESSIONAL_CATEGORY_KEY = "professionalCategory";
 const ENABLED_CARE_LINES_KEY = "enabledCareLines";
@@ -21,7 +21,7 @@ async function fetchSnippetsAndSave(isManualSync = false) {
         const syncEnabled =
             syncSettings[SYNC_ENABLED_KEY] !== undefined
                 ? syncSettings[SYNC_ENABLED_KEY]
-                : true;
+                : true; // Default to true if not set, will be changed later per user request
         if (!syncEnabled) {
             console.log(
                 "[BackgroundJS] Sincronização automática desabilitada nas configurações. Abortando fetchSnippetsAndSave."
@@ -49,7 +49,7 @@ async function fetchSnippetsAndSave(isManualSync = false) {
         let forceEnable = false;
         if (
             !existingEnabledCareLines ||
-            Array.isArray(existingEnabledCareLines) ||
+            Array.isArray(existingEnabledCareLines) || // This condition might be too broad if {} is valid but [] is not
             (typeof existingEnabledCareLines === "object" &&
                 existingEnabledCareLines === null) ||
             typeof existingEnabledCareLines !== "object"
@@ -68,24 +68,16 @@ async function fetchSnippetsAndSave(isManualSync = false) {
 
         await updateEnabledCareLinesOnSnippetsChange(snippetsData, forceEnable);
 
-        chrome.notifications.create({
-            type: "basic",
-            iconUrl: "icon.png",
-            title: "Sincronização Concluída",
-            message: "Os snippets foram sincronizados com sucesso do GitHub.",
-        });
+        // chrome.notifications.create call REMOVED from here
+        console.log("[BackgroundJS] Sincronização Concluída (notificação removida).");
         return true;
     } catch (e) {
         console.error(
             "[BackgroundJS] Erro detalhado em fetchSnippetsAndSave:",
             e
         );
-        chrome.notifications.create({
-            type: "basic",
-            iconUrl: "icon.png",
-            title: "Falha na Sincronização",
-            message: `Não foi possível sincronizar os snippets: ${e.message}`,
-        });
+        // chrome.notifications.create call REMOVED from here
+        console.log("[BackgroundJS] Falha na Sincronização (notificação removida).");
         return false;
     }
 }
@@ -97,14 +89,14 @@ chrome.runtime.onInstalled.addListener((details) => {
     );
 
     console.log("[BackgroundJS - onInstalled] Checking chrome object:", typeof chrome);
-    if (chrome) { // Only log chrome.alarms if chrome itself exists
+    if (chrome) {
         console.log("[BackgroundJS - onInstalled] Checking chrome.alarms object:", typeof chrome.alarms);
     } else {
         console.log("[BackgroundJS - onInstalled] chrome object is not available.");
     }
     try {
         if (chrome.alarms) {
-            chrome.alarms.create("sync-snippets", { periodInMinutes: 1440 });
+            chrome.alarms.create("sync-snippets", { periodInMinutes: 1440 }); // 24 hours
             console.log("[BackgroundJS - onInstalled] Alarme 'sync-snippets' criado.");
         } else {
             console.error("[BackgroundJS - onInstalled] chrome.alarms API not available.");
@@ -114,50 +106,48 @@ chrome.runtime.onInstalled.addListener((details) => {
     }
 
     chrome.storage.local.get(SYNC_ENABLED_KEY, (result) => {
-        if (result[SYNC_ENABLED_KEY] === undefined) {
-            chrome.storage.local.set({ [SYNC_ENABLED_KEY]: true }, () => {
-                console.log(
-                    "[BackgroundJS - onInstalled] Preferência de sincronização automática inicializada como true."
-                );
+        if (chrome.runtime.lastError) {
+            console.error("[BackgroundJS - onInstalled] Error reading SYNC_ENABLED_KEY:", chrome.runtime.lastError.message);
+        } else if (result[SYNC_ENABLED_KEY] === undefined) {
+            // Default for SYNC_ENABLED_KEY will be handled in a later plan step (set to false)
+            // For now, let's keep the user's current logic or set it to true if it was the original default
+            chrome.storage.local.set({ [SYNC_ENABLED_KEY]: true }, () => { // Original default was true
+                 if (chrome.runtime.lastError) {
+                    console.error("[BackgroundJS - onInstalled] Error setting default SYNC_ENABLED_KEY:", chrome.runtime.lastError.message);
+                } else {
+                    console.log(
+                        "[BackgroundJS - onInstalled] Preferência de sincronização automática inicializada como true (temporário, será alterado)."
+                    );
+                }
             });
         }
     });
 
-    chrome.storage.local.get(
-        [STORAGE_KEY, ENABLED_CARE_LINES_KEY],
-        async (result) => {
-            if (chrome.runtime.lastError) {
-                console.error(
-                    "[BackgroundJS - onInstalled] Erro ao ler storage inicial:",
-                    chrome.runtime.lastError.message
-                );
-            } else {
-                const snippetsFromStorage = result[STORAGE_KEY];
-                const enabledCareLinesFromStorage =
-                    result[ENABLED_CARE_LINES_KEY];
-                let needsForcedUpdateOfCareLines = false;
-
-                if (!enabledCareLinesFromStorage) {
-                } else if (Array.isArray(enabledCareLinesFromStorage)) {
-                } else if (
-                    typeof enabledCareLinesFromStorage !== "object" ||
-                    enabledCareLinesFromStorage === null
-                ) {
-                }
-
-                if (
-                    snippetsFromStorage &&
-                    (needsForcedUpdateOfCareLines ||
-                        (enabledCareLinesFromStorage &&
-                            typeof enabledCareLinesFromStorage === "object" &&
-                            !Array.isArray(enabledCareLinesFromStorage)))
-                ) {
-                } else if (!snippetsFromStorage) {
-                }
+    // Initialize ENABLED_CARE_LINES_KEY to an empty object if it's not already an object
+    // This helps prevent the "forceEnable" logic in fetchSnippetsAndSave from triggering incorrectly
+    // if the key exists but is, for example, an array from a previous version.
+    chrome.storage.local.get(ENABLED_CARE_LINES_KEY, (result) => {
+        if (chrome.runtime.lastError) {
+            console.error("[BackgroundJS - onInstalled] Error reading ENABLED_CARE_LINES_KEY for initialization check:", chrome.runtime.lastError.message);
+        } else {
+            const currentVal = result[ENABLED_CARE_LINES_KEY];
+            if (typeof currentVal !== 'object' || currentVal === null || Array.isArray(currentVal)) {
+                chrome.storage.local.set({ [ENABLED_CARE_LINES_KEY]: {} }, () => {
+                    if (chrome.runtime.lastError) {
+                        console.error("[BackgroundJS - onInstalled] Error initializing ENABLED_CARE_LINES_KEY to {}:", chrome.runtime.lastError.message);
+                    } else {
+                        console.log("[BackgroundJS - onInstalled] ENABLED_CARE_LINES_KEY inicializado como objeto vazio.");
+                    }
+                });
             }
-            fetchSnippetsAndSave();
         }
-    );
+    });
+
+
+    // Initial fetch and setup of care lines
+    // The logic for defaulting all care lines to enabled will be refined in updateEnabledCareLinesOnSnippetsChange
+    // or directly here based on whether snippets are new.
+    fetchSnippetsAndSave(); // This will call updateEnabledCareLinesOnSnippetsChange
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -171,30 +161,48 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     console.log("[BackgroundJS] Mensagem recebida:", msg);
 
     if (msg.action === "manualSync") {
-        fetchSnippetsAndSave()
-            .then(() => respond({ success: true }))
+        fetchSnippetsAndSave(true) // Pass true for manual sync
+            .then((success) => respond({ success })) // Respond with the success status
             .catch((err) => respond({ success: false, error: err.message }));
-        return true;
+        return true; // Indicates that the response is sent asynchronously
     } else if (msg.action === "getProfessionalCategory") {
         chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY, (result) => {
-            respond(result[PROFESSIONAL_CATEGORY_KEY]);
+            if (chrome.runtime.lastError) {
+                console.error("[BackgroundJS] Error getting PROFESSIONAL_CATEGORY_KEY:", chrome.runtime.lastError.message);
+                respond({ error: chrome.runtime.lastError.message });
+            } else {
+                respond(result[PROFESSIONAL_CATEGORY_KEY]);
+            }
         });
         return true;
     } else if (msg.action === "setProfessionalCategory") {
         chrome.storage.local.set(
             { [PROFESSIONAL_CATEGORY_KEY]: msg.category },
             () => {
-                respond({ success: true });
+                if (chrome.runtime.lastError) {
+                    console.error("[BackgroundJS] Error setting PROFESSIONAL_CATEGORY_KEY:", chrome.runtime.lastError.message);
+                    respond({ success: false, error: chrome.runtime.lastError.message });
+                } else {
+                    respond({ success: true });
+                }
             }
         );
         return true;
     } else if (msg.action === "getEnabledCareLines") {
         chrome.storage.local.get(ENABLED_CARE_LINES_KEY, (result) => {
-            respond(result[ENABLED_CARE_LINES_KEY] || {});
+            if (chrome.runtime.lastError) {
+                console.error("[BackgroundJS] Error getting ENABLED_CARE_LINES_KEY:", chrome.runtime.lastError.message);
+                respond({ error: chrome.runtime.lastError.message });
+            } else {
+                respond(result[ENABLED_CARE_LINES_KEY] || {});
+            }
         });
         return true;
     } else if (msg.action === "setEnabledCareLines") {
+        // This message can receive either a specific professional category update
+        // or a complete replacement of the ENABLED_CARE_LINES_KEY object.
         if (msg.professionalCategory && Array.isArray(msg.careLines)) {
+            // Update for a specific professional category
             console.log(
                 `[BackgroundJS] setEnabledCareLines recebido para categoria: ${msg.professionalCategory}, linhas:`,
                 msg.careLines
@@ -202,7 +210,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             chrome.storage.local.get(ENABLED_CARE_LINES_KEY, (result) => {
                 if (chrome.runtime.lastError) {
                     console.error(
-                        "[BackgroundJS] Erro ao ler ENABLED_CARE_LINES_KEY para setEnabledCareLines:",
+                        "[BackgroundJS] Erro ao ler ENABLED_CARE_LINES_KEY para setEnabledCareLines (categoria específica):",
                         chrome.runtime.lastError.message
                     );
                     respond({
@@ -212,13 +220,14 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                     return;
                 }
                 let allEnabledCareLines = result[ENABLED_CARE_LINES_KEY];
+                // Ensure it's a valid object; if not, initialize.
                 if (
                     typeof allEnabledCareLines !== "object" ||
                     allEnabledCareLines === null ||
                     Array.isArray(allEnabledCareLines)
                 ) {
                     console.warn(
-                        "[BackgroundJS] allEnabledCareLines não era um objeto válido em setEnabledCareLines. Reiniciando."
+                        "[BackgroundJS] allEnabledCareLines não era um objeto válido em setEnabledCareLines (categoria específica). Reiniciando."
                     );
                     allEnabledCareLines = {};
                 }
@@ -235,20 +244,21 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                                 success: false,
                                 error: chrome.runtime.lastError.message,
                             });
-                            return;
+                        } else {
+                            console.log(
+                                "[BackgroundJS] EnabledCareLines (por categoria) salvas:",
+                                allEnabledCareLines
+                            );
+                            respond({ success: true });
                         }
-                        console.log(
-                            "[BackgroundJS] EnabledCareLines (por categoria) salvas:",
-                            allEnabledCareLines
-                        );
-                        respond({ success: true });
                     }
                 );
             });
         } else if (
-            typeof msg.careLines === "object" &&
+            typeof msg.careLines === "object" && // This is for replacing the entire object
             msg.careLines !== null &&
-            !Array.isArray(msg.careLines)
+            !Array.isArray(msg.careLines) &&
+            msg.professionalCategory === undefined // Make sure it's not the other case
         ) {
             console.log(
                 "[BackgroundJS] setEnabledCareLines recebido com objeto completo:",
@@ -266,13 +276,13 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                             success: false,
                             error: chrome.runtime.lastError.message,
                         });
-                        return;
+                    } else {
+                        console.log(
+                            "[BackgroundJS] EnabledCareLines (objeto completo) salvas:",
+                            msg.careLines
+                        );
+                        respond({ success: true });
                     }
-                    console.log(
-                        "[BackgroundJS] EnabledCareLines (objeto completo) salvas:",
-                        msg.careLines
-                    );
-                    respond({ success: true });
                 }
             );
         } else {
@@ -285,74 +295,103 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                 error: "Formato de dados inválido para setEnabledCareLines.",
             });
         }
-        return true;
+        return true; // Indicates asynchronous response
     } else if (msg.action === "getLastSelectedCareLine") {
+        // This should store last selected care line per professional category
         chrome.storage.local.get(LAST_SELECTED_CARE_LINE_KEY, (result) => {
-            respond(result[LAST_SELECTED_CARE_LINE_KEY] || {});
+            if (chrome.runtime.lastError) {
+                console.error("[BackgroundJS] Error getting LAST_SELECTED_CARE_LINE_KEY:", chrome.runtime.lastError.message);
+                respond({ error: chrome.runtime.lastError.message });
+            } else {
+                respond(result[LAST_SELECTED_CARE_LINE_KEY] || {});
+            }
         });
         return true;
     } else if (msg.action === "setLastSelectedCareLine") {
-        chrome.storage.local.set(
-            { [LAST_SELECTED_CARE_LINE_KEY]: msg.data },
-            () => {
-                respond({ success: true });
-            }
-        );
+        // Expects msg.data to be an object like { profCat: "Medicina", careLine: "Anamnese" }
+        // Or, if we want to store the whole object as received from content script:
+        // msg.careLine and msg.professionalCategory (from content script)
+        if (msg.professionalCategory && msg.careLine) {
+            chrome.storage.local.get(LAST_SELECTED_CARE_LINE_KEY, (result) => {
+                if (chrome.runtime.lastError) {
+                    console.error("[BackgroundJS] Error reading LAST_SELECTED_CARE_LINE_KEY for set:", chrome.runtime.lastError.message);
+                    respond({ success: false, error: chrome.runtime.lastError.message });
+                    return;
+                }
+                let currentLastSelected = result[LAST_SELECTED_CARE_LINE_KEY] || {};
+                if(typeof currentLastSelected !== 'object' || currentLastSelected === null || Array.isArray(currentLastSelected)) {
+                    currentLastSelected = {};
+                }
+                currentLastSelected[msg.professionalCategory] = msg.careLine;
+                chrome.storage.local.set({ [LAST_SELECTED_CARE_LINE_KEY]: currentLastSelected }, () => {
+                    if (chrome.runtime.lastError) {
+                        console.error("[BackgroundJS] Error setting LAST_SELECTED_CARE_LINE_KEY:", chrome.runtime.lastError.message);
+                        respond({ success: false, error: chrome.runtime.lastError.message });
+                    } else {
+                        respond({ success: true });
+                    }
+                });
+            });
+        } else {
+            console.error("[BackgroundJS] Invalid data for setLastSelectedCareLine:", msg);
+            respond({ success: false, error: "Invalid data for setLastSelectedCareLine" });
+        }
         return true;
     } else if (msg.action === "getSnippetsDataForInPageMenu") {
         Promise.all([
-            new Promise((resolve) =>
+            new Promise((resolve, reject) =>
                 chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY, (r) =>
-                    resolve(r[PROFESSIONAL_CATEGORY_KEY])
+                    chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve(r[PROFESSIONAL_CATEGORY_KEY])
                 )
             ),
-            new Promise((resolve) =>
+            new Promise((resolve, reject) =>
                 chrome.storage.local.get(ENABLED_CARE_LINES_KEY, (r) =>
-                    resolve(r[ENABLED_CARE_LINES_KEY] || {})
+                    chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve(r[ENABLED_CARE_LINES_KEY] || {})
                 )
             ),
-            new Promise((resolve) =>
+            new Promise((resolve, reject) =>
                 chrome.storage.local.get(STORAGE_KEY, (r) =>
-                    resolve(r[STORAGE_KEY] || {})
+                    chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve(r[STORAGE_KEY] || {})
                 )
             ),
-            new Promise((resolve) =>
+            new Promise((resolve, reject) => // For last selected care line per prof cat
                 chrome.storage.local.get(LAST_SELECTED_CARE_LINE_KEY, (r) =>
-                    resolve(r[LAST_SELECTED_CARE_LINE_KEY] || {})
+                    chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve(r[LAST_SELECTED_CARE_LINE_KEY] || {})
                 )
             ),
         ])
             .then(
                 ([
                     profCat,
-                    enabledCareLines,
+                    enabledCareLinesByProfCat, // This is an object { profCat1: [...], profCat2: [...] }
                     allSnippets,
-                    lastSelectedCareLines,
+                    lastSelectedCareLineByProfCat, // This is an object { profCat1: "...", profCat2: "..." }
                 ]) => {
                     if (!profCat || !allSnippets[profCat]) {
                         respond({
-                            error: "Categoria profissional não definida ou não encontrada.",
+                            error: "Categoria profissional não definida ou snippets não encontrados para a categoria.",
                         });
                         return;
                     }
-                    const enabledLinesForProfCat =
-                        enabledCareLines[profCat] || [];
-                    const snippetsForProfCat = allSnippets[profCat] || {};
-                    const lastSelectedCareLineForProfCat =
-                        lastSelectedCareLines[profCat] || null;
+                    const enabledLinesForCurrentProfCat =
+                        enabledCareLinesByProfCat[profCat] || [];
+                    const snippetsForCurrentProfCat = allSnippets[profCat] || {};
+                    const lastSelectedCareLineForCurrentProfCat =
+                        lastSelectedCareLineByProfCat[profCat] || null;
+
                     respond({
-                        snippetsForProfCat,
-                        enabledCareLinesForProfCat: enabledLinesForProfCat,
-                        lastSelectedCareLineForProfCat,
+                        snippetsForProfCat: snippetsForCurrentProfCat, // Snippets for the current professional category
+                        enabledCareLinesForProfCat: enabledLinesForCurrentProfCat, // Enabled care lines for the current professional category
+                        lastSelectedCareLineForProfCat: lastSelectedCareLineForCurrentProfCat, // Last selected care line for the current professional category
                     });
                 }
             )
             .catch((error) => {
                 console.error(
                     "[BackgroundScript] Erro em getSnippetsDataForInPageMenu:",
-                    error
+                    error.message || error
                 );
-                respond({ error: error.message });
+                respond({ error: "Erro ao buscar dados para menu: " + (error.message || error) });
             });
         return true;
     } else if (msg.action === "getAllSnippets") {
@@ -363,13 +402,13 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                     chrome.runtime.lastError.message
                 );
                 respond({ error: chrome.runtime.lastError.message });
-                return;
+            } else {
+                respond(result[STORAGE_KEY] || {});
             }
-            respond(result[STORAGE_KEY] || {});
         });
         return true;
     } else if (msg.action === "saveAllSnippets") {
-        chrome.storage.local.set({ [STORAGE_KEY]: msg.payload }, () => {
+        chrome.storage.local.set({ [STORAGE_KEY]: msg.payload }, async () => {
             if (chrome.runtime.lastError) {
                 console.error(
                     "[BackgroundJS] Erro ao salvar snippets:",
@@ -379,13 +418,15 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                     success: false,
                     error: chrome.runtime.lastError.message,
                 });
-                return;
+            } else {
+                console.log(
+                    "[BackgroundJS] Snippets salvos com sucesso via editor."
+                );
+                // After saving, it's crucial to update the enabled care lines based on the new snippet structure.
+                // Pass false for forceEnableAll, so it respects existing choices for existing care lines.
+                await updateEnabledCareLinesOnSnippetsChange(msg.payload, false);
+                respond({ success: true });
             }
-            console.log(
-                "[BackgroundJS] Snippets salvos com sucesso via editor."
-            );
-            respond({ success: true });
-            updateEnabledCareLinesOnSnippetsChange(msg.payload);
         });
         return true;
     } else if (msg.action === "getSnippetByCommandName") {
@@ -399,33 +440,17 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
         );
 
         Promise.all([
-            new Promise((resolve) =>
-                chrome.storage.local.get(STORAGE_KEY, (r) =>
-                    resolve(r[STORAGE_KEY] || {})
-                )
-            ),
-            new Promise((resolve) =>
-                chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY, (r) =>
-                    resolve(r[PROFESSIONAL_CATEGORY_KEY])
-                )
-            ),
-            new Promise((resolve) =>
-                chrome.storage.local.get(ENABLED_CARE_LINES_KEY, (r) =>
-                    resolve(r[ENABLED_CARE_LINES_KEY] || {})
-                )
-            ),
-            new Promise((resolve) =>
-                chrome.storage.local.get(LAST_SELECTED_CARE_LINE_KEY, (r) =>
-                    resolve(r[LAST_SELECTED_CARE_LINE_KEY] || {})
-                )
-            ),
+            new Promise((resolve, reject) => chrome.storage.local.get(STORAGE_KEY, r => chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve(r[STORAGE_KEY] || {}))),
+            new Promise((resolve, reject) => chrome.storage.local.get(PROFESSIONAL_CATEGORY_KEY, r => chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve(r[PROFESSIONAL_CATEGORY_KEY]))),
+            new Promise((resolve, reject) => chrome.storage.local.get(ENABLED_CARE_LINES_KEY, r => chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve(r[ENABLED_CARE_LINES_KEY] || {}))),
+            new Promise((resolve, reject) => chrome.storage.local.get(LAST_SELECTED_CARE_LINE_KEY, r => chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve(r[LAST_SELECTED_CARE_LINE_KEY] || {}))),
         ])
             .then(
                 ([
                     allSnippets,
                     profCat,
-                    enabledCareLinesData,
-                    lastSelectedCareLinesData,
+                    enabledCareLinesData, // Object: { profCat: ["line1", "line2"] }
+                    lastSelectedCareLinesData, // Object: { profCat: "lineX" }
                 ]) => {
                     if (!profCat || !allSnippets[profCat]) {
                         console.log(
@@ -437,24 +462,25 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                         return;
                     }
 
-                    const snippetsForProfCat = allSnippets[profCat];
-                    let foundSnippet = null;
+                    const snippetsForCurrentProfCat = allSnippets[profCat];
+                    let foundSnippetData = null;
 
-                    function findCommand(careLineName) {
-                        if (snippetsForProfCat[careLineName]) {
-                            for (const snippetKey in snippetsForProfCat[
+                    // Helper to find command in a specific care line's snippets
+                    function findCommandInCareLine(careLineName) {
+                        if (snippetsForCurrentProfCat[careLineName]) {
+                            for (const snippetKey in snippetsForCurrentProfCat[
                                 careLineName
                             ]) {
                                 const snippetData =
-                                    snippetsForProfCat[careLineName][
-                                        snippetKey
+                                    snippetsForCurrentProfCat[careLineName][
+                                    snippetKey
                                     ];
                                 if (
                                     typeof snippetData === "object" &&
                                     snippetData !== null &&
                                     typeof snippetData.command === "string" &&
                                     snippetData.command.toLowerCase() ===
-                                        commandName
+                                    commandName
                                 ) {
                                     return snippetData;
                                 }
@@ -463,49 +489,47 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                         return null;
                     }
 
-                    const lastSelectedCareLine = lastSelectedCareLinesData
-                        ? lastSelectedCareLinesData[profCat]
-                        : null;
-                    if (lastSelectedCareLine) {
-                        foundSnippet = findCommand(lastSelectedCareLine);
+                    // 1. Try the last selected care line for the current profCat
+                    const lastSelectedCareLineForCurrentProfCat =
+                        lastSelectedCareLinesData[profCat];
+                    if (lastSelectedCareLineForCurrentProfCat) {
+                        foundSnippetData = findCommandInCareLine(
+                            lastSelectedCareLineForCurrentProfCat
+                        );
                     }
 
-                    if (!foundSnippet) {
-                        const enabledLinesForProfCat =
-                            enabledCareLinesData &&
-                            enabledCareLinesData[profCat]
-                                ? enabledCareLinesData[profCat]
-                                : [];
-                        for (const careLine of enabledLinesForProfCat) {
-                            if (careLine === lastSelectedCareLine) continue;
-                            foundSnippet = findCommand(careLine);
-                            if (foundSnippet) break;
+                    // 2. If not found, try other enabled care lines for the current profCat
+                    if (!foundSnippetData) {
+                        const enabledLinesForCurrentProfCat =
+                            enabledCareLinesData[profCat] || [];
+                        for (const careLine of enabledLinesForCurrentProfCat) {
+                            if (careLine === lastSelectedCareLineForCurrentProfCat) continue; // Already checked
+                            foundSnippetData = findCommandInCareLine(careLine);
+                            if (foundSnippetData) break;
                         }
                     }
 
-                    if (!foundSnippet) {
-                        for (const careLine in snippetsForProfCat) {
-                            if (careLine === lastSelectedCareLine) continue;
-                            const enabledLinesForProfCat =
-                                enabledCareLinesData &&
-                                enabledCareLinesData[profCat]
-                                    ? enabledCareLinesData[profCat]
-                                    : [];
-                            if (enabledLinesForProfCat.includes(careLine))
-                                continue;
+                    // 3. If still not found, try any other care line in the current profCat's snippets (even if not explicitly enabled)
+                    // This makes commands more broadly available within a professional category if not found in preferred/enabled lines.
+                    if (!foundSnippetData) {
+                        for (const careLine in snippetsForCurrentProfCat) {
+                            if (careLine === lastSelectedCareLineForCurrentProfCat) continue;
+                            const enabledLinesForCurrentProfCat = enabledCareLinesData[profCat] || [];
+                            if (enabledLinesForCurrentProfCat.includes(careLine)) continue; // Already checked among enabled
 
-                            foundSnippet = findCommand(careLine);
-                            if (foundSnippet) break;
+                            foundSnippetData = findCommandInCareLine(careLine);
+                            if (foundSnippetData) break;
                         }
                     }
 
-                    if (foundSnippet) {
+
+                    if (foundSnippetData) {
                         console.log(
                             `[BackgroundJS] Snippet encontrado para o comando '${commandName}'.`
                         );
                         respond({
-                            content: foundSnippet.content,
-                            richText: !!foundSnippet.richText,
+                            content: foundSnippetData.content,
+                            richText: !!foundSnippetData.richText, // Ensure boolean
                         });
                     } else {
                         console.log(
@@ -520,22 +544,19 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             .catch((error) => {
                 console.error(
                     "[BackgroundJS] Erro em getSnippetByCommandName:",
-                    error
+                    error.message || error
                 );
-                respond({ error: "Erro ao buscar snippet: " + error.message });
+                respond({ error: "Erro ao buscar snippet: " + (error.message || error) });
             });
         return true;
     } else if (msg.action === "getInsertionMode") {
         chrome.storage.local.get(INSERTION_MODE_KEY, (result) => {
             if (chrome.runtime.lastError) {
-                console.error(
-                    "[BackgroundJS] Erro em getInsertionMode:",
-                    chrome.runtime.lastError.message
-                );
+                console.error("[BackgroundJS] Error getting INSERTION_MODE_KEY:", chrome.runtime.lastError.message);
                 respond({ error: chrome.runtime.lastError.message });
-                return;
+            } else {
+                respond({ mode: result[INSERTION_MODE_KEY] || "both" }); // Default to 'both'
             }
-            respond({ mode: result[INSERTION_MODE_KEY] || "both" });
         });
         return true;
     } else if (msg.action === "setInsertionMode") {
@@ -557,7 +578,6 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                     respond({ success: true });
                 }
             });
-            return true;
         } else {
             console.error(
                 "[BackgroundJS] Invalid mode provided for setInsertionMode:",
@@ -565,22 +585,20 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             );
             respond({ success: false, error: "Invalid mode value." });
         }
+        return true;
     } else if (msg.action === "getSyncEnabled") {
         chrome.storage.local.get(SYNC_ENABLED_KEY, (result) => {
             if (chrome.runtime.lastError) {
-                console.error(
-                    "[BackgroundJS] Erro em getSyncEnabled:",
-                    chrome.runtime.lastError.message
-                );
+                console.error("[BackgroundJS] Error getting SYNC_ENABLED_KEY:", chrome.runtime.lastError.message);
                 respond({ error: chrome.runtime.lastError.message });
-                return;
+            } else {
+                respond({
+                    syncEnabled:
+                        result[SYNC_ENABLED_KEY] !== undefined
+                            ? result[SYNC_ENABLED_KEY]
+                            : true, // Default to true if not set
+                });
             }
-            respond({
-                syncEnabled:
-                    result[SYNC_ENABLED_KEY] !== undefined
-                        ? result[SYNC_ENABLED_KEY]
-                        : true,
-            });
         });
         return true;
     } else if (msg.action === "setSyncEnabled") {
@@ -596,18 +614,23 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                         success: false,
                         error: chrome.runtime.lastError.message,
                     });
-                    return;
+                } else {
+                    console.log(
+                        `[BackgroundJS] Preferência de sincronização automática definida para: ${msg.syncEnabled}`
+                    );
+                    respond({ success: true });
                 }
-                console.log(
-                    `[BackgroundJS] Preferência de sincronização automática definida para: ${msg.syncEnabled}`
-                );
-                respond({ success: true });
             }
         );
         return true;
     } else if (msg.action === "getAllowedSites") {
         chrome.storage.local.get(ALLOWED_SITES_KEY, (result) => {
-            respond({ sites: result[ALLOWED_SITES_KEY] || [] });
+             if (chrome.runtime.lastError) {
+                console.error("[BackgroundJS] Error getting ALLOWED_SITES_KEY:", chrome.runtime.lastError.message);
+                respond({ error: chrome.runtime.lastError.message });
+            } else {
+                respond({ sites: result[ALLOWED_SITES_KEY] || [] });
+            }
         });
         return true;
     } else if (msg.action === "setAllowedSites") {
@@ -622,18 +645,27 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                     success: false,
                     error: chrome.runtime.lastError.message,
                 });
-                return;
+            } else {
+                console.log(
+                    "[BackgroundJS] Lista de sites permitidos salva:",
+                    sites
+                );
+                respond({ success: true });
             }
-            console.log(
-                "[BackgroundJS] Lista de sites permitidos salva:",
-                sites
-            );
-            respond({ success: true });
         });
         return true;
     }
+    // Default response if no action matched.
+    // respond({ error: "Ação desconhecida: " + msg.action });
+    // It's better not to respond if the action isn't recognized,
+    // or ensure all message handlers explicitly return true if they respond asynchronously.
+    return false; // No async response planned for unhandled actions
 });
 
+// This was changed from chrome.action.onClicked to open a popup.
+// If a popup is defined in manifest.json, this listener is not triggered.
+// Keeping it here might be redundant or for a different purpose if the popup is removed.
+/*
 chrome.action.onClicked.addListener((tab) => {
     console.log("[BackgroundScript] Ícone da extensão clicado.");
     const optionsUrl = chrome.runtime.getURL("options.html");
@@ -646,17 +678,31 @@ chrome.action.onClicked.addListener((tab) => {
         }
     });
 });
+*/
 
 chrome.commands.onCommand.addListener((command) => {
     console.log(`[BackgroundScript] Comando '${command}' recebido.`);
     if (command === "abrir-snippets") {
+        // This command might be better suited to open the popup directly,
+        // or trigger an action within the active tab if contextually relevant.
+        // For now, it opens the full options page.
         const optionsUrl = chrome.runtime.getURL("options.html");
         chrome.tabs.query({ url: optionsUrl }, (tabs) => {
+            if (chrome.runtime.lastError) {
+                console.error("[BackgroundJS] Error querying tabs for command:", chrome.runtime.lastError.message);
+                return;
+            }
             if (tabs.length > 0) {
-                chrome.tabs.update(tabs[0].id, { active: true });
-                chrome.windows.update(tabs[0].windowId, { focused: true });
+                chrome.tabs.update(tabs[0].id, { active: true }, () => {
+                    if (chrome.runtime.lastError) console.error("[BackgroundJS] Error activating tab for command:", chrome.runtime.lastError.message);
+                });
+                chrome.windows.update(tabs[0].windowId, { focused: true }, () => {
+                     if (chrome.runtime.lastError) console.error("[BackgroundJS] Error focusing window for command:", chrome.runtime.lastError.message);
+                });
             } else {
-                chrome.tabs.create({ url: optionsUrl });
+                chrome.tabs.create({ url: optionsUrl }, () => {
+                     if (chrome.runtime.lastError) console.error("[BackgroundJS] Error creating tab for command:", chrome.runtime.lastError.message);
+                });
             }
         });
     }
@@ -664,11 +710,11 @@ chrome.commands.onCommand.addListener((command) => {
 
 async function updateEnabledCareLinesOnSnippetsChange(
     newSnippetsData,
-    forceEnableAll = false
+    forceEnableAll = false // This flag is now used to enable all on first load/major change
 ) {
     console.log(
         "[BackgroundJS] updateEnabledCareLinesOnSnippetsChange chamado com newSnippetsData:",
-        JSON.parse(JSON.stringify(newSnippetsData)),
+        JSON.parse(JSON.stringify(newSnippetsData)), // Deep copy for logging
         "forceEnableAll:",
         forceEnableAll
     );
@@ -679,107 +725,103 @@ async function updateEnabledCareLinesOnSnippetsChange(
                 "[BackgroundJS] Erro ao ler ENABLED_CARE_LINES_KEY em updateEnabledCareLinesOnSnippetsChange:",
                 chrome.runtime.lastError.message
             );
-            return;
+            return; // Exit if we can't read existing settings
         }
 
         let currentEnabledCareLines = result[ENABLED_CARE_LINES_KEY];
+
+        // If currentEnabledCareLines is not a valid object (e.g. undefined, null, array from old version),
+        // or if forceEnableAll is true, we should treat it as needing a fresh setup.
         if (
+            forceEnableAll ||
             typeof currentEnabledCareLines !== "object" ||
             currentEnabledCareLines === null ||
             Array.isArray(currentEnabledCareLines)
         ) {
             console.warn(
-                "[BackgroundJS] currentEnabledCareLines não era um objeto válido. Reiniciando para {}. Original:",
+                `[BackgroundJS] Forçando reavaliação completa de enabledCareLines. forceEnableAll: ${forceEnableAll}, currentInvalid: ${typeof currentEnabledCareLines !== "object" || currentEnabledCareLines === null || Array.isArray(currentEnabledCareLines)}. Original:`,
                 currentEnabledCareLines
             );
-            currentEnabledCareLines = {};
+            currentEnabledCareLines = {}; // Reset to build fresh
         }
 
-        const newEnabledCareLines = JSON.parse(
-            JSON.stringify(currentEnabledCareLines)
-        );
-        let changed = false;
+        // Create a deep copy to modify and then compare for changes
+        const newEnabledCareLinesState = JSON.parse(JSON.stringify(currentEnabledCareLines));
+        let anyChangesMade = false;
 
+        // Iterate over professional categories in the new snippets data
         for (const profCat in newSnippetsData) {
             if (!newSnippetsData.hasOwnProperty(profCat)) continue;
 
-            const careLinesFromSnippets = newSnippetsData[profCat]
+            const careLinesAvailableInSnippets = newSnippetsData[profCat]
                 ? Object.keys(newSnippetsData[profCat])
                 : [];
 
             if (forceEnableAll) {
-                if (
-                    JSON.stringify(newEnabledCareLines[profCat]?.sort()) !==
-                    JSON.stringify(careLinesFromSnippets.sort())
-                ) {
-                    console.log(
-                        `[BackgroundJS] forceEnableAll: Atualizando ${profCat} de ${JSON.stringify(
-                            newEnabledCareLines[profCat]
-                        )} para: ${JSON.stringify(careLinesFromSnippets)}`
-                    );
-                    newEnabledCareLines[profCat] = [...careLinesFromSnippets];
-                    changed = true;
+                // If forcing enable, all available care lines for this profCat should be enabled.
+                // Compare with current state for this profCat to see if an update is needed.
+                const currentForProfCat = newEnabledCareLinesState[profCat] || [];
+                if (JSON.stringify(currentForProfCat.sort()) !== JSON.stringify(careLinesAvailableInSnippets.sort())) {
+                    newEnabledCareLinesState[profCat] = [...careLinesAvailableInSnippets];
+                    console.log(`[BackgroundJS - updateEnabledCareLines] forceEnableAll: Categoria ${profCat} atualizada para habilitar todas as ${careLinesAvailableInSnippets.length} linhas.`);
+                    anyChangesMade = true;
                 }
             } else {
-                if (
-                    newEnabledCareLines[profCat] &&
-                    Array.isArray(newEnabledCareLines[profCat])
-                ) {
-                    const originalProfCatLines = [
-                        ...newEnabledCareLines[profCat],
-                    ];
-                    newEnabledCareLines[profCat] = newEnabledCareLines[
-                        profCat
-                    ].filter((cl) => careLinesFromSnippets.includes(cl));
-
-                    if (
-                        JSON.stringify(originalProfCatLines.sort()) !==
-                        JSON.stringify(newEnabledCareLines[profCat].sort())
-                    ) {
-                        console.log(
-                            `[BackgroundJS] Sincronização: Atualizando ${profCat}. Linhas habilitadas filtradas para existir nos snippets. Antes: ${JSON.stringify(
-                                originalProfCatLines
-                            )}, Depois: ${JSON.stringify(
-                                newEnabledCareLines[profCat]
-                            )}`
-                        );
-                        changed = true;
-                    }
-                } else if (
-                    newEnabledCareLines[profCat] &&
-                    !Array.isArray(newEnabledCareLines[profCat])
-                ) {
-                    console.warn(
-                        `[BackgroundJS] Linhas habilitadas para ${profCat} não eram um array. Resetando para []. Original: ${JSON.stringify(
-                            newEnabledCareLines[profCat]
-                        )}`
+                // Not forcing enable all, so respect existing settings but prune deleted care lines.
+                if (newEnabledCareLinesState[profCat] && Array.isArray(newEnabledCareLinesState[profCat])) {
+                    const originalLinesForProfCat = [...newEnabledCareLinesState[profCat]];
+                    newEnabledCareLinesState[profCat] = newEnabledCareLinesState[profCat].filter(cl =>
+                        careLinesAvailableInSnippets.includes(cl)
                     );
-                    newEnabledCareLines[profCat] = [];
-                    changed = true;
+                    if (JSON.stringify(originalLinesForProfCat.sort()) !== JSON.stringify(newEnabledCareLinesState[profCat].sort())) {
+                        console.log(`[BackgroundJS - updateEnabledCareLines] Categoria ${profCat}: Linhas habilitadas sincronizadas. Removidas linhas inexistentes. Antes: ${originalLinesForProfCat.length}, Depois: ${newEnabledCareLinesState[profCat].length}`);
+                        anyChangesMade = true;
+                    }
+                } else if (newEnabledCareLinesState[profCat] !== undefined) {
+                    // Exists but is not an array or null, means it's invalid.
+                    // If snippets exist for this category, default to enabling all its care lines.
+                    // Otherwise, remove the invalid entry.
+                    if (careLinesAvailableInSnippets.length > 0) {
+                        newEnabledCareLinesState[profCat] = [...careLinesAvailableInSnippets];
+                         console.warn(`[BackgroundJS - updateEnabledCareLines] Categoria ${profCat} tinha valor inválido, resetado para todas as ${careLinesAvailableInSnippets.length} linhas habilitadas.`);
+                    } else {
+                        delete newEnabledCareLinesState[profCat];
+                        console.warn(`[BackgroundJS - updateEnabledCareLines] Categoria ${profCat} tinha valor inválido e não há snippets, removendo entrada.`);
+                    }
+                    anyChangesMade = true;
+                } else if (!newEnabledCareLinesState.hasOwnProperty(profCat) && careLinesAvailableInSnippets.length > 0) {
+                    // This professional category is new in snippets and wasn't in settings before.
+                    // Per user request: "Quero que por padrão seja ativado todas as linhas de cuidado"
+                    // So, enable all its care lines.
+                    newEnabledCareLinesState[profCat] = [...careLinesAvailableInSnippets];
+                    console.log(`[BackgroundJS - updateEnabledCareLines] Nova categoria ${profCat} detectada. Habilitando todas as suas ${careLinesAvailableInSnippets.length} linhas de cuidado por padrão.`);
+                    anyChangesMade = true;
                 }
             }
         }
 
-        for (const profCatInEnabled in newEnabledCareLines) {
+        // Remove professional categories from enabled settings if they no longer exist in snippets
+        for (const profCatInEnabled in newEnabledCareLinesState) {
             if (
-                newEnabledCareLines.hasOwnProperty(profCatInEnabled) &&
+                newEnabledCareLinesState.hasOwnProperty(profCatInEnabled) &&
                 !newSnippetsData.hasOwnProperty(profCatInEnabled)
             ) {
                 console.log(
-                    `[BackgroundJS] Removendo categoria profissional ${profCatInEnabled} de enabledCareLines pois não existe mais nos snippets.`
+                    `[BackgroundJS - updateEnabledCareLines] Removendo categoria ${profCatInEnabled} das configurações habilitadas (não existe mais nos snippets).`
                 );
-                delete newEnabledCareLines[profCatInEnabled];
-                changed = true;
+                delete newEnabledCareLinesState[profCatInEnabled];
+                anyChangesMade = true;
             }
         }
 
-        if (changed) {
+        // If any changes were made, save the new state
+        if (anyChangesMade) {
             console.log(
                 "[BackgroundJS] Salvando enabledCareLines atualizadas:",
-                JSON.parse(JSON.stringify(newEnabledCareLines))
+                JSON.parse(JSON.stringify(newEnabledCareLinesState)) // Log a deep copy
             );
             await chrome.storage.local.set({
-                [ENABLED_CARE_LINES_KEY]: newEnabledCareLines,
+                [ENABLED_CARE_LINES_KEY]: newEnabledCareLinesState,
             });
             if (chrome.runtime.lastError) {
                 console.error(
@@ -795,7 +837,7 @@ async function updateEnabledCareLinesOnSnippetsChange(
     } catch (error) {
         console.error(
             "[BackgroundJS] Erro crítico em updateEnabledCareLinesOnSnippetsChange:",
-            error
+            error.message || error, error.stack
         );
     }
 }
