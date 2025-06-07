@@ -127,14 +127,12 @@ chrome.runtime.onInstalled.addListener((details) => {
         if (chrome.runtime.lastError) {
             console.error("[BackgroundJS - onInstalled] Error reading SYNC_ENABLED_KEY:", chrome.runtime.lastError.message);
         } else if (result[SYNC_ENABLED_KEY] === undefined) {
-            // Default for SYNC_ENABLED_KEY will be handled in a later plan step (set to false)
-            // For now, let's keep the user's current logic or set it to true if it was the original default
-            chrome.storage.local.set({ [SYNC_ENABLED_KEY]: true }, () => { // Original default was true
+            chrome.storage.local.set({ [SYNC_ENABLED_KEY]: false }, () => { // Changed to false
                  if (chrome.runtime.lastError) {
-                    console.error("[BackgroundJS - onInstalled] Error setting default SYNC_ENABLED_KEY:", chrome.runtime.lastError.message);
+                    console.error("[BackgroundJS - onInstalled] Error setting default SYNC_ENABLED_KEY to false:", chrome.runtime.lastError.message);
                 } else {
                     console.log(
-                        "[BackgroundJS - onInstalled] Preferência de sincronização automática inicializada como true (temporário, será alterado)."
+                        "[BackgroundJS - onInstalled] Preferência de sincronização automática inicializada como false." // Updated log
                     );
                 }
             });
@@ -147,25 +145,28 @@ chrome.runtime.onInstalled.addListener((details) => {
     chrome.storage.local.get(ENABLED_CARE_LINES_KEY, (result) => {
         if (chrome.runtime.lastError) {
             console.error("[BackgroundJS - onInstalled] Error reading ENABLED_CARE_LINES_KEY for initialization check:", chrome.runtime.lastError.message);
+            fetchSnippetsAndSave(); // Attempt to fetch anyway, or handle error more gracefully
+            return;
+        }
+
+        const currentVal = result[ENABLED_CARE_LINES_KEY];
+        if (typeof currentVal !== 'object' || currentVal === null || Array.isArray(currentVal)) {
+            console.log("[BackgroundJS - onInstalled] ENABLED_CARE_LINES_KEY is invalid or not an object. Initializing to {}. Current value:", currentVal);
+            chrome.storage.local.set({ [ENABLED_CARE_LINES_KEY]: {} }, () => {
+                if (chrome.runtime.lastError) {
+                    console.error("[BackgroundJS - onInstalled] Error initializing ENABLED_CARE_LINES_KEY to {}:", chrome.runtime.lastError.message);
+                } else {
+                    console.log("[BackgroundJS - onInstalled] ENABLED_CARE_LINES_KEY inicializado como objeto vazio.");
+                }
+                // Whether set worked or not, proceed to fetch. The fetch function's forceEnable logic
+                // will correctly handle if existingEnabledCareLines is still not ideal.
+                fetchSnippetsAndSave();
+            });
         } else {
-            const currentVal = result[ENABLED_CARE_LINES_KEY];
-            if (typeof currentVal !== 'object' || currentVal === null || Array.isArray(currentVal)) {
-                chrome.storage.local.set({ [ENABLED_CARE_LINES_KEY]: {} }, () => {
-                    if (chrome.runtime.lastError) {
-                        console.error("[BackgroundJS - onInstalled] Error initializing ENABLED_CARE_LINES_KEY to {}:", chrome.runtime.lastError.message);
-                    } else {
-                        console.log("[BackgroundJS - onInstalled] ENABLED_CARE_LINES_KEY inicializado como objeto vazio.");
-                    }
-                });
-            }
+            console.log("[BackgroundJS - onInstalled] ENABLED_CARE_LINES_KEY is already a valid object:", currentVal);
+            fetchSnippetsAndSave(); // Call if already valid
         }
     });
-
-
-    // Initial fetch and setup of care lines
-    // The logic for defaulting all care lines to enabled will be refined in updateEnabledCareLinesOnSnippetsChange
-    // or directly here based on whether snippets are new.
-    fetchSnippetsAndSave(); // This will call updateEnabledCareLinesOnSnippetsChange
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {

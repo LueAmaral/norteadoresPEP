@@ -7,25 +7,92 @@
         body {
             font-family: Arial, sans-serif;
             padding: 10px;
-            width: 250px; /* Adjust width as needed */
-            text-align: center;
+            width: 280px; /* Adjusted width for more content */
+            font-size: 14px;
+        }
+        .popup-container {
+            text-align: left;
         }
         h3 {
             margin-top: 0;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        label {
+            display: block;
+            margin-top: 10px;
+            margin-bottom: 3px;
+            font-weight: bold;
+        }
+        select, .radio-group label {
+            width: 100%;
+            padding: 6px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+            font-size: 13px;
+        }
+        .radio-group label {
+            font-weight: normal;
+            display: flex; /* Use flex to align radio and text */
+            align-items: center; /* Vertically center items */
+            padding: 4px 0; /* Adjust padding */
+        }
+        .radio-group input[type="radio"] {
+            margin-right: 8px; /* Space between radio and text */
+            margin-top: 0; /* Reset margin if needed */
+            margin-bottom: 0; /* Reset margin if needed */
         }
         button {
             padding: 8px 12px;
-            margin-top: 10px;
+            margin-top: 15px;
             cursor: pointer;
             width: 100%;
             box-sizing: border-box;
+            font-size: 13px;
+        }
+        hr {
+            margin-top: 15px;
+            margin-bottom: 15px;
+            border: 0;
+            border-top: 1px solid #ccc;
+        }
+        #popupStatus {
+            text-align: center;
+            font-size: 0.9em;
+            min-height: 1.2em; /* Reserve space for messages */
+            margin-top: 5px;
+        }
+        #popupStatus.success {
+            color: green;
+        }
+        #popupStatus.error {
+            color: red;
         }
     </style>
 </head>
 <body>
-    <h3>Norteadores de Atendimento</h3>
-    <p>Configurações Rápidas (em breve)</p>
-    <button id="openOptionsPageButton">Abrir Configurações Completas</button>
+    <div class="popup-container">
+        <h3>Norteadores de Atendimento</h3>
+
+        <label for="popupProfCatSelect">Categoria Profissional:</label>
+        <select id="popupProfCatSelect">
+            <option value="">Carregando...</option>
+        </select>
+
+        <label>Modo de Inserção:</label>
+        <div class="radio-group">
+            <label><input type="radio" name="popupInsertionMode" value="button"> Botão 📌</label>
+            <label><input type="radio" name="popupInsertionMode" value="command"> Comando //</label>
+            <label><input type="radio" name="popupInsertionMode" value="both"> Ambos</label>
+        </div>
+
+        <div id="popupStatus"></div>
+
+        <hr>
+
+        <button id="popupOpenEditorBtn">Abrir Editor de Snippets</button>
+        <button id="openOptionsPageButton">Todas as Configurações</button>
+    </div>
     <script src="popup.js"></script>
 </body>
 </html>
