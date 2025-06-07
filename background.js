@@ -96,6 +96,12 @@ chrome.runtime.onInstalled.addListener((details) => {
         details
     );
 
+    console.log("[BackgroundJS - onInstalled] Checking chrome object:", typeof chrome);
+    if (chrome) { // Only log chrome.alarms if chrome itself exists
+        console.log("[BackgroundJS - onInstalled] Checking chrome.alarms object:", typeof chrome.alarms);
+    } else {
+        console.log("[BackgroundJS - onInstalled] chrome object is not available.");
+    }
     try {
         if (chrome.alarms) {
             chrome.alarms.create("sync-snippets", { periodInMinutes: 1440 });
@@ -104,7 +110,7 @@ chrome.runtime.onInstalled.addListener((details) => {
             console.error("[BackgroundJS - onInstalled] chrome.alarms API not available.");
         }
     } catch (e) {
-        console.error("[BackgroundJS - onInstalled] Error during alarm setup:", e);
+        console.error("[BackgroundJS - onInstalled] Error during alarm setup. Message:", e.message, "Stack:", e.stack, "Full error object:", e);
     }
 
     chrome.storage.local.get(SYNC_ENABLED_KEY, (result) => {
