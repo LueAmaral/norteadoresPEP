@@ -68,24 +68,12 @@ async function fetchSnippetsAndSave(isManualSync = false) {
 
         await updateEnabledCareLinesOnSnippetsChange(snippetsData, forceEnable);
 
-        chrome.notifications.create({
-            type: "basic",
-            iconUrl: "icon.png",
-            title: "Sincronização Concluída",
-            message: "Os snippets foram sincronizados com sucesso do GitHub.",
-        });
         return true;
     } catch (e) {
         console.error(
             "[BackgroundJS] Erro detalhado em fetchSnippetsAndSave:",
             e
         );
-        chrome.notifications.create({
-            type: "basic",
-            iconUrl: "icon.png",
-            title: "Falha na Sincronização",
-            message: `Não foi possível sincronizar os snippets: ${e.message}`,
-        });
         return false;
     }
 }
