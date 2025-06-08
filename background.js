@@ -501,10 +501,9 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                     enabledCareLinesData, // Object: { profCat: ["line1", "line2"] }
                     lastSelectedCareLinesData, // Object: { profCat: "lineX" }
                 ]) => {
+                    console.log(`[BG_CMD_SEARCH] Intentando buscar comando: '${commandName}' na Categoria Profissional: '${profCat}'`);
                     if (!profCat || !allSnippets[profCat]) {
-                        console.log(
-                            "[BackgroundJS] Categoria profissional não definida ou snippets não encontrados para a categoria."
-                        );
+                        console.log(`[BG_CMD_SEARCH] ERRO: Categoria Profissional '${profCat}' não definida ou sem snippets.`);
                         respond({
                             error: "Categoria profissional não definida ou snippets não encontrados.",
                         });
@@ -516,31 +515,29 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
 
                     // Helper to find command in a specific care line's snippets
                     function findCommandInCareLine(careLineName) {
-                        if (snippetsForCurrentProfCat[careLineName]) {
-                            for (const snippetKey in snippetsForCurrentProfCat[
-                                careLineName
-                            ]) {
-                                const snippetData =
-                                    snippetsForCurrentProfCat[careLineName][
-                                    snippetKey
-                                    ];
-                                if (
-                                    typeof snippetData === "object" &&
-                                    snippetData !== null &&
-                                    typeof snippetData.command === "string" &&
-                                    snippetData.command.toLowerCase() ===
-                                    commandName
-                                ) {
-                                    return snippetData;
+                        console.log(`[BG_CMD_SEARCH]   Tentando buscar na Linha de Cuidado: '${careLineName}'`);
+                        if (snippetsForCurrentProfCat && snippetsForCurrentProfCat[careLineName]) {
+                            console.log(`[BG_CMD_SEARCH]     Encontrada Linha de Cuidado. Iterando ${Object.keys(snippetsForCurrentProfCat[careLineName]).length} snippets.`);
+                            for (const snippetKey in snippetsForCurrentProfCat[careLineName]) {
+                                const snippetData = snippetsForCurrentProfCat[careLineName][snippetKey];
+                                if (typeof snippetData === "object" && snippetData !== null && typeof snippetData.command === "string") {
+                                    console.log(`[BG_CMD_SEARCH]       Verificando snippet '${snippetKey}', comando: '${snippetData.command.toLowerCase()}'`);
+                                    if (snippetData.command.toLowerCase() === commandName) {
+                                        console.log(`[BG_CMD_SEARCH]         COMANDO ENCONTRADO!`);
+                                        return snippetData;
+                                    }
                                 }
                             }
+                            console.log(`[BG_CMD_SEARCH]     Finalizada iteração de snippets em '${careLineName}', sem correspondência nesta linha.`);
+                        } else {
+                            console.log(`[BG_CMD_SEARCH]     Linha de Cuidado '${careLineName}' não encontrada nos snippets para a categoria '${profCat}'.`);
                         }
                         return null;
                     }
 
                     // 1. Try the last selected care line for the current profCat
-                    const lastSelectedCareLineForCurrentProfCat =
-                        lastSelectedCareLinesData[profCat];
+                    const lastSelectedCareLineForCurrentProfCat = lastSelectedCareLinesData ? lastSelectedCareLinesData[profCat] : null;
+                    console.log(`[BG_CMD_SEARCH] 1. Verificando linha de cuidado selecionada anteriormente: '${lastSelectedCareLineForCurrentProfCat}'`);
                     if (lastSelectedCareLineForCurrentProfCat) {
                         foundSnippetData = findCommandInCareLine(
                             lastSelectedCareLineForCurrentProfCat
@@ -549,8 +546,8 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
 
                     // 2. If not found, try other enabled care lines for the current profCat
                     if (!foundSnippetData) {
-                        const enabledLinesForCurrentProfCat =
-                            enabledCareLinesData[profCat] || [];
+                        const enabledLinesForCurrentProfCat = enabledCareLinesData && enabledCareLinesData[profCat] ? enabledCareLinesData[profCat] : [];
+                        console.log(`[BG_CMD_SEARCH] 2. Não encontrado na última selecionada. Verificando ${enabledLinesForCurrentProfCat.length} linhas de cuidado habilitadas:`, enabledLinesForCurrentProfCat);
                         for (const careLine of enabledLinesForCurrentProfCat) {
                             if (careLine === lastSelectedCareLineForCurrentProfCat) continue; // Already checked
                             foundSnippetData = findCommandInCareLine(careLine);
@@ -559,31 +556,25 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                     }
 
                     // 3. If still not found, try any other care line in the current profCat's snippets (even if not explicitly enabled)
-                    // This makes commands more broadly available within a professional category if not found in preferred/enabled lines.
                     if (!foundSnippetData) {
+                        console.log(`[BG_CMD_SEARCH] 3. Ainda sem correspondência. Verificando todas as outras linhas de cuidado na categoria '${profCat}'.`);
                         for (const careLine in snippetsForCurrentProfCat) {
-                            if (careLine === lastSelectedCareLineForCurrentProfCat) continue;
-                            const enabledLinesForCurrentProfCat = enabledCareLinesData[profCat] || [];
-                            if (enabledLinesForCurrentProfCat.includes(careLine)) continue; // Already checked among enabled
+                            const enabledLinesForCurrentProfCat = enabledCareLinesData && enabledCareLinesData[profCat] ? enabledCareLinesData[profCat] : [];
+                            if (careLine === lastSelectedCareLineForCurrentProfCat || enabledLinesForCurrentProfCat.includes(careLine)) continue;
 
                             foundSnippetData = findCommandInCareLine(careLine);
                             if (foundSnippetData) break;
                         }
                     }
 
-
                     if (foundSnippetData) {
-                        console.log(
-                            `[BackgroundJS] Snippet encontrado para o comando '${commandName}'.`
-                        );
+                        console.log(`[BG_CMD_SEARCH] Comando '${commandName}' finalmente ENCONTRADO. Conteúdo:`, foundSnippetData.content);
                         respond({
                             content: foundSnippetData.content,
                             richText: !!foundSnippetData.richText, // Ensure boolean
                         });
                     } else {
-                        console.log(
-                            `[BackgroundJS] Snippet não encontrado para o comando '${commandName}'.`
-                        );
+                        console.log(`[BG_CMD_SEARCH] Comando '${commandName}' finalmente NÃO ENCONTRADO.`);
                         respond({
                             error: "Snippet não encontrado para este comando.",
                         });
@@ -706,6 +697,32 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     } else if (msg.action === "getTabId") {
         respond({ tabId: sender.tab.id });
         return false; // Synchronous response
+    } else if (msg.action === "checkIfTabIsDisabled") {
+        const tabIdToCheck = msg.tabId || (sender.tab ? sender.tab.id : null);
+        if (!tabIdToCheck) {
+            console.warn("[BackgroundJS] checkIfTabIsDisabled: No tabId provided and sender.tab.id is unavailable.");
+            respond({ error: "Tab ID not available to check disabled state." });
+            return true; // Async response
+        }
+
+        (async () => {
+            try {
+                const result = await new Promise((resolve, reject) => {
+                    chrome.storage.session.get([DISABLED_TABS_KEY], (res) => {
+                        if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                        resolve(res);
+                    });
+                });
+                const disabledTabs = result[DISABLED_TABS_KEY] || [];
+                const isDisabled = disabledTabs.includes(tabIdToCheck);
+                console.log(`[BackgroundJS] checkIfTabIsDisabled: Tab ${tabIdToCheck} is ${isDisabled ? 'disabled' : 'not disabled'}. List:`, disabledTabs);
+                respond({ isDisabled: isDisabled });
+            } catch (error) {
+                console.error(`[BackgroundJS] checkIfTabIsDisabled: Error checking storage for tab ${tabIdToCheck}:`, error.message);
+                respond({ error: error.message, isDisabled: false }); // Default to not disabled on error
+            }
+        })(); // Immediately-invoked async function
+        return true; // Indicates that the response is sent asynchronously
     }
     // Default response if no action matched.
     // respond({ error: "Ação desconhecida: " + msg.action });

@@ -29,21 +29,28 @@ async function checkInitialPinDisabledState() {
         });
         const currentTabId = response.tabId;
 
-        const storageResult = await new Promise((resolve, reject) => {
-            chrome.storage.session.get(['disabledPinTabs'], (res) => { // Use the same key as popup.js
-                if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
-                resolve(res);
+        console.log('[ContentJS] checkInitialPinDisabledState: Asking background if tab', currentTabId, 'is disabled.');
+        const bgResponse = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({ action: "checkIfTabIsDisabled", tabId: currentTabId }, (response) => {
+                if (chrome.runtime.lastError) {
+                    return reject(new Error(chrome.runtime.lastError.message));
+                }
+                if (response.error) {
+                    return reject(new Error(response.error));
+                }
+                resolve(response);
             });
         });
 
-        const disabledTabs = storageResult['disabledPinTabs'] || [];
-        if (disabledTabs.includes(currentTabId)) {
-            console.log('[ContentJS] Pins initially disabled for this tab (chrome.storage.session).');
+        if (bgResponse.isDisabled) {
+            console.log('[ContentJS] Pins initially disabled for this tab (from background check).');
             pinsTemporarilyDisabledForThisTab = true;
-            sessionStorage.setItem(SESSION_DISABLED_FLAG_KEY, 'true'); // Set for current page load
+            sessionStorage.setItem(SESSION_DISABLED_FLAG_KEY, 'true');
         } else {
-            // Ensure this tab is not incorrectly flagged if it was previously
+            console.log('[ContentJS] Pins initially enabled for this tab (from background check).');
+            // Ensure local sessionStorage flag is also cleared if background says not disabled
             sessionStorage.removeItem(SESSION_DISABLED_FLAG_KEY);
+            pinsTemporarilyDisabledForThisTab = false; // Explicitly set to false
         }
     } catch (error) {
         console.warn("[ContentJS] Error checking initial pin disabled state:", error.message);
@@ -447,6 +454,7 @@ let commandActive = false;
 let lastKeyWasSlash = false;
 
 function handleTextInput(event) {
+    console.log('[ContentJS_CMD] handleTextInput triggered. Key:', event.key, 'Target:', event.target.tagName, event.target.isContentEditable);
     const el = event.target;
     targetElement = el;
 
@@ -662,9 +670,10 @@ function applyInsertionMode(mode) {
     );
     const trimmedMode = typeof mode === "string" ? mode.trim() : mode || "both";
     currentInsertionMode = trimmedMode;
-    console.log(
-        `[ContentJS] applyInsertionMode: currentInsertionMode IS NOW '${currentInsertionMode}', typeof='${typeof currentInsertionMode}'`
-    );
+    // console.log( // Original log replaced by the one below
+    //     `[ContentJS] applyInsertionMode: currentInsertionMode IS NOW '${currentInsertionMode}', typeof='${typeof currentInsertionMode}'`
+    // );
+    console.log('[ContentJS_CMD] applyInsertionMode: currentInsertionMode is now', currentInsertionMode);
 
     console.log("[ContentJS] Removing existing command listener (if any).");
     document.removeEventListener("keydown", handleTextInput, true);
@@ -683,8 +692,11 @@ function applyInsertionMode(mode) {
         currentInsertionMode === "command" || currentInsertionMode === "both";
 
     console.log(
-        `[ContentJS] Checking for button features: currentInsertionMode is '${currentInsertionMode}'. Enables Button? Result: ${enablesButton}`
+        `[ContentJS_CMD] applyInsertionMode: Checking for command features. currentInsertionMode is '${currentInsertionMode}'. Enables Command? Result: ${enablesCommand}`
     );
+    // console.log( // Original log replaced by the one above
+    //     `[ContentJS] Checking for button features: currentInsertionMode is '${currentInsertionMode}'. Enables Button? Result: ${enablesButton}`
+    // );
     if (enablesButton) {
         try {
             console.log(
@@ -708,14 +720,15 @@ function applyInsertionMode(mode) {
         }
     }
 
-    console.log(
-        `[ContentJS] Checking for command features: currentInsertionMode is '${currentInsertionMode}'. Enables Command? Result: ${enablesCommand}`
-    );
+    // console.log( // Original log replaced by the one above (CMD version)
+    //    `[ContentJS] Checking for command features: currentInsertionMode is '${currentInsertionMode}'. Enables Command? Result: ${enablesCommand}`
+    // );
     if (enablesCommand) {
         try {
-            console.log(
-                "[ContentJS] Attempting to ADD keydown listener for commands."
-            );
+            console.log('[ContentJS_CMD] applyInsertionMode: Adding keydown listener for commands.');
+            // console.log( // Original log replaced by the one above
+            //     "[ContentJS] Attempting to ADD keydown listener for commands."
+            // );
             document.addEventListener("keydown", handleTextInput, true);
             console.log("[ContentJS] ADDED keydown listener for commands.");
         } catch (e) {
@@ -729,11 +742,19 @@ async function initAfterAllowed() { // Make it async
    await checkInitialPinDisabledState(); // Wait for this check
 
    chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
+        if (chrome.runtime.lastError) { // Add error check
+            console.error('[ContentJS_CMD] initAfterAllowed: Error getting insertion mode:', chrome.runtime.lastError.message);
+            applyInsertionMode("both"); // Example fallback
+            return;
+        }
         let mode = response && response.mode ? response.mode : "both";
-        console.log(
-            "[ContentJS] Modo de inserção inicial recebido (raw):",
-            response ? response.mode : undefined
+        console.log( // Add this log
+            '[ContentJS_CMD] initAfterAllowed: Received insertion mode from background:', mode, '(Raw response:', response, ')'
         );
+        // console.log( // Original log replaced by the one above
+        //     "[ContentJS] Modo de inserção inicial recebido (raw):",
+        //     response ? response.mode : undefined
+        // );
         applyInsertionMode(mode);
     });
 
@@ -780,12 +801,16 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         sessionStorage.removeItem(SESSION_DISABLED_FLAG_KEY);
         // Re-inject buttons.
         chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
-            if (chrome.runtime.lastError) {
-                console.error("[ContentJS] Error getting insertion mode for re-enabling pins:", chrome.runtime.lastError.message);
-                sendResponse({success: false, error: "Failed to get insertion mode"});
+            if (chrome.runtime.lastError) { // Add error check
+                console.error('[ContentJS_CMD] temporarilyEnablePins: Error getting insertion mode:', chrome.runtime.lastError.message);
+                applyInsertionMode("both"); // Example fallback
+                sendResponse({success: false, error: "Failed to get insertion mode for re-enabling pins"});
                 return;
             }
             let mode = response && response.mode ? response.mode : "both";
+            console.log( // Add this log
+                '[ContentJS_CMD] temporarilyEnablePins: Received insertion mode from background:', mode, '(Raw response:', response, ')'
+            );
             applyInsertionMode(mode); // This will call injectButtons if mode allows
             sendResponse({success: true, status: "Pins enabled on tab, mode: " + mode });
         });

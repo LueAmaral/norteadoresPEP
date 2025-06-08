@@ -4,6 +4,25 @@
     <meta charset="UTF-8">
     <title>Configurações Rápidas</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            width: 350px; /* Increased from previous 280px (which was also inline) */
+            min-height: 250px; /* Approximate height, adjust as needed */
+            /* The padding: 15px from styles.css body will still apply */
+        }
+        /* Ensure select and buttons take full width if not already by styles.css */
+        select, button {
+            width: 100%;
+            box-sizing: border-box; /* Already in styles.css but good to be mindful of */
+        }
+        .radio-group label { /* From previous popup inline style - might be needed if styles.css doesn't cover it well enough */
+            display: flex;
+            align-items: center;
+        }
+        .radio-group input[type="radio"] { /* From previous popup inline style */
+            margin-right: 8px;
+        }
+    </style>
 </head>
 <body>
     <div class="popup-container">
