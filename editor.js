@@ -34,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnImportJson = document.getElementById("btnImportJson");
     const fileImportJson = document.getElementById("fileImportJson");
     const editorStatusEl = document.getElementById("editorStatus");
+    const btnBackToOptions = document.getElementById('btnBackToOptions');
 
     let currentSnippets = {};
     let selectedItemPath = null;
@@ -694,6 +695,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     loadSnippets();
                 }
             }
+        });
+    }
+
+    if (btnBackToOptions) {
+        btnBackToOptions.addEventListener('click', () => {
+            window.location.href = 'options.html';
         });
     }
 
