@@ -498,22 +498,18 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                 ([
                     allSnippets,
                     profCat,
-                    enabledCareLinesData, // Object: { profCat: ["line1", "line2"] }
-                    lastSelectedCareLinesData, // Object: { profCat: "lineX" }
+                    enabledCareLinesData,
+                    lastSelectedCareLinesData,
                 ]) => {
                     console.log(`[BG_CMD_SEARCH] Intentando buscar comando: '${commandName}' na Categoria Profissional: '${profCat}'`);
                     if (!profCat || !allSnippets[profCat]) {
                         console.log(`[BG_CMD_SEARCH] ERRO: Categoria Profissional '${profCat}' não definida ou sem snippets.`);
-                        respond({
-                            error: "Categoria profissional não definida ou snippets não encontrados.",
-                        });
+                        respond({ error: "Categoria profissional não definida ou snippets não encontrados." });
                         return;
                     }
-
                     const snippetsForCurrentProfCat = allSnippets[profCat];
                     let foundSnippetData = null;
 
-                    // Helper to find command in a specific care line's snippets
                     function findCommandInCareLine(careLineName) {
                         console.log(`[BG_CMD_SEARCH]   Tentando buscar na Linha de Cuidado: '${careLineName}'`);
                         if (snippetsForCurrentProfCat && snippetsForCurrentProfCat[careLineName]) {
@@ -535,27 +531,22 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                         return null;
                     }
 
-                    // 1. Try the last selected care line for the current profCat
                     const lastSelectedCareLineForCurrentProfCat = lastSelectedCareLinesData ? lastSelectedCareLinesData[profCat] : null;
                     console.log(`[BG_CMD_SEARCH] 1. Verificando linha de cuidado selecionada anteriormente: '${lastSelectedCareLineForCurrentProfCat}'`);
                     if (lastSelectedCareLineForCurrentProfCat) {
-                        foundSnippetData = findCommandInCareLine(
-                            lastSelectedCareLineForCurrentProfCat
-                        );
+                        foundSnippetData = findCommandInCareLine(lastSelectedCareLineForCurrentProfCat);
                     }
 
-                    // 2. If not found, try other enabled care lines for the current profCat
                     if (!foundSnippetData) {
                         const enabledLinesForCurrentProfCat = enabledCareLinesData && enabledCareLinesData[profCat] ? enabledCareLinesData[profCat] : [];
                         console.log(`[BG_CMD_SEARCH] 2. Não encontrado na última selecionada. Verificando ${enabledLinesForCurrentProfCat.length} linhas de cuidado habilitadas:`, enabledLinesForCurrentProfCat);
                         for (const careLine of enabledLinesForCurrentProfCat) {
-                            if (careLine === lastSelectedCareLineForCurrentProfCat) continue; // Already checked
+                            if (careLine === lastSelectedCareLineForCurrentProfCat) continue;
                             foundSnippetData = findCommandInCareLine(careLine);
                             if (foundSnippetData) break;
                         }
                     }
 
-                    // 3. If still not found, try any other care line in the current profCat's snippets (even if not explicitly enabled)
                     if (!foundSnippetData) {
                         console.log(`[BG_CMD_SEARCH] 3. Ainda sem correspondência. Verificando todas as outras linhas de cuidado na categoria '${profCat}'.`);
                         for (const careLine in snippetsForCurrentProfCat) {
@@ -571,7 +562,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                         console.log(`[BG_CMD_SEARCH] Comando '${commandName}' finalmente ENCONTRADO. Conteúdo:`, foundSnippetData.content);
                         respond({
                             content: foundSnippetData.content,
-                            richText: !!foundSnippetData.richText, // Ensure boolean
+                            richText: !!foundSnippetData.richText,
                         });
                     } else {
                         console.log(`[BG_CMD_SEARCH] Comando '${commandName}' finalmente NÃO ENCONTRADO.`);
@@ -910,3 +901,4 @@ async function updateEnabledCareLinesOnSnippetsChange(
         );
     }
 }
+// Re-commit attempt: 2024-05-01T00:00:00.000Z
