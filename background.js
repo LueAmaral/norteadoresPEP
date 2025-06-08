@@ -10,6 +10,7 @@ const LAST_SELECTED_CARE_LINE_KEY = "lastSelectedCareLine";
 const INSERTION_MODE_KEY = "insertionMode";
 const SYNC_ENABLED_KEY = "syncEnabled";
 const ALLOWED_SITES_KEY = "allowedSites";
+const DISABLED_TABS_KEY = 'disabledPinTabs'; // ADD THIS
 
 async function fetchSnippetsAndSave(isManualSync = false) {
     console.log(
@@ -99,6 +100,35 @@ async function fetchSnippetsAndSave(isManualSync = false) {
         return false;
     }
 }
+
+chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+    console.log(`[BackgroundJS] Tab ${tabId} removed. Cleaning from ${DISABLED_TABS_KEY}.`);
+    try {
+        const result = await new Promise((resolve, reject) => {
+            chrome.storage.session.get([DISABLED_TABS_KEY], (res) => {
+                if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                resolve(res);
+            });
+        });
+
+        let disabledTabs = result[DISABLED_TABS_KEY] || [];
+
+        if (disabledTabs.includes(tabId)) {
+            const updatedDisabledTabs = disabledTabs.filter(id => id !== tabId);
+            await new Promise((resolve, reject) => {
+                chrome.storage.session.set({ [DISABLED_TABS_KEY]: updatedDisabledTabs }, () => {
+                    if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                    resolve();
+                });
+            });
+            console.log(`[BackgroundJS] Tab ${tabId} removed from ${DISABLED_TABS_KEY}. New list:`, updatedDisabledTabs);
+        } else {
+            console.log(`[BackgroundJS] Tab ${tabId} was not in ${DISABLED_TABS_KEY}. No cleanup needed.`);
+        }
+    } catch (error) {
+        console.error(`[BackgroundJS] Error cleaning up tab ${tabId} from ${DISABLED_TABS_KEY}:`, error.message);
+    }
+});
 
 chrome.runtime.onInstalled.addListener((details) => {
     console.log(
@@ -673,6 +703,9 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             }
         });
         return true;
+    } else if (msg.action === "getTabId") {
+        respond({ tabId: sender.tab.id });
+        return false; // Synchronous response
     }
     // Default response if no action matched.
     // respond({ error: "Ação desconhecida: " + msg.action });

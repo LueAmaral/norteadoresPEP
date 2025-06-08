@@ -3,9 +3,57 @@ let targetElement = null;
 let customMenu = null;
 let currentInsertionMode = "both";
 let pinButtons = [];
+let pinsTemporarilyDisabledForThisTab = false;
+const SESSION_DISABLED_FLAG_KEY = 'pinsDisabledForTab'; // For content script's session storage
 
 const INSERTION_MODE_KEY = "insertionMode";
 const ALLOWED_SITES_KEY = "allowedSites";
+
+async function checkInitialPinDisabledState() {
+    try {
+        // First, check content script's sessionStorage (quick check for current page load)
+        if (sessionStorage.getItem(SESSION_DISABLED_FLAG_KEY) === 'true') {
+            console.log('[ContentJS] Pins initially disabled for this tab (sessionStorage flag).');
+            pinsTemporarilyDisabledForThisTab = true;
+            // No need to call removeAllPinButtons() here, as injectButtons will be blocked.
+            return; // Stop further checks if sessionStorage flag is already set
+        }
+
+        // If no sessionStorage flag, check chrome.storage.session via background
+        const response = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({ action: "getTabId" }, (res) => {
+                if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                if (res && res.tabId) resolve(res);
+                else reject(new Error("Failed to get Tab ID from background."));
+            });
+        });
+        const currentTabId = response.tabId;
+
+        const storageResult = await new Promise((resolve, reject) => {
+            chrome.storage.session.get(['disabledPinTabs'], (res) => { // Use the same key as popup.js
+                if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                resolve(res);
+            });
+        });
+
+        const disabledTabs = storageResult['disabledPinTabs'] || [];
+        if (disabledTabs.includes(currentTabId)) {
+            console.log('[ContentJS] Pins initially disabled for this tab (chrome.storage.session).');
+            pinsTemporarilyDisabledForThisTab = true;
+            sessionStorage.setItem(SESSION_DISABLED_FLAG_KEY, 'true'); // Set for current page load
+        } else {
+            // Ensure this tab is not incorrectly flagged if it was previously
+            sessionStorage.removeItem(SESSION_DISABLED_FLAG_KEY);
+        }
+    } catch (error) {
+        console.warn("[ContentJS] Error checking initial pin disabled state:", error.message);
+        // Proceed with pins enabled if there's an error, or decide on a safer default.
+        // For now, default to enabled if check fails.
+        pinsTemporarilyDisabledForThisTab = false;
+    }
+    // After state is determined, existing logic that calls injectButtons (e.g. in applyInsertionMode)
+    // will run, and injectButtons will use the 'pinsTemporarilyDisabledForThisTab' flag.
+}
 
 async function showCustomMenu(textareaElement) {
     targetElement = textareaElement;
@@ -251,6 +299,18 @@ function pasteSnippetIntoTextarea(elementToPasteInto, content) {
 }
 
 function injectButtons() {
+    if (pinsTemporarilyDisabledForThisTab) {
+        console.log("[ContentJS] Pin injection skipped as pins are temporarily disabled for this tab.");
+        return;
+    }
+    // Also check sessionStorage as a backup, though the global flag should be primary
+    if (sessionStorage.getItem(SESSION_DISABLED_FLAG_KEY) === 'true' && !pinsTemporarilyDisabledForThisTab) {
+        // This case might happen if the global flag wasn't set but sessionStorage was (e.g. script re-injected without full reload)
+        console.log("[ContentJS] Pin injection skipped due to sessionStorage flag (re-syncing global flag).");
+        pinsTemporarilyDisabledForThisTab = true;
+        return;
+    }
+
     const textareas = document.querySelectorAll(
         'textarea:not([data-pin-injected="true"]), div[contenteditable="true"]:not([data-pin-injected="true"])'
     );
@@ -665,8 +725,10 @@ function applyInsertionMode(mode) {
     console.log(`[ContentJS] MODE APPLIED: ${currentInsertionMode}`);
 }
 
-function initAfterAllowed() {
-    chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
+async function initAfterAllowed() { // Make it async
+   await checkInitialPinDisabledState(); // Wait for this check
+
+   chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
         let mode = response && response.mode ? response.mode : "both";
         console.log(
             "[ContentJS] Modo de inserção inicial recebido (raw):",
@@ -704,6 +766,33 @@ function initAfterAllowed() {
     window.addEventListener("scroll", repositionAllPins, true);
     window.addEventListener("resize", repositionAllPins);
 }
+
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+    if (request.action === "temporarilyDisablePins") {
+        console.log("[ContentJS] Received 'temporarilyDisablePins' message.");
+        pinsTemporarilyDisabledForThisTab = true;
+        sessionStorage.setItem(SESSION_DISABLED_FLAG_KEY, 'true'); // For current page lifecycle
+        removeAllPinButtons();
+        sendResponse({success: true, status: "Pins disabled on tab"});
+    } else if (request.action === "temporarilyEnablePins") {
+        console.log("[ContentJS] Received 'temporarilyEnablePins' message.");
+        pinsTemporarilyDisabledForThisTab = false;
+        sessionStorage.removeItem(SESSION_DISABLED_FLAG_KEY);
+        // Re-inject buttons.
+        chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error("[ContentJS] Error getting insertion mode for re-enabling pins:", chrome.runtime.lastError.message);
+                sendResponse({success: false, error: "Failed to get insertion mode"});
+                return;
+            }
+            let mode = response && response.mode ? response.mode : "both";
+            applyInsertionMode(mode); // This will call injectButtons if mode allows
+            sendResponse({success: true, status: "Pins enabled on tab, mode: " + mode });
+        });
+        return true; // Indicates asynchronous response
+    }
+    // Keep other message listeners if any
+});
 
 chrome.storage.local.get(ALLOWED_SITES_KEY, (res) => {
     const allowed = res[ALLOWED_SITES_KEY] || [];

@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const openEditorBtn = document.getElementById('popupOpenEditorBtn');
     const openOptionsPageButton = document.getElementById('openOptionsPageButton');
     const statusEl = document.getElementById('popupStatus');
+    const tempDisablePinToggle = document.getElementById('tempDisablePinToggle');
+
+    const DISABLED_TABS_KEY = 'disabledPinTabs';
 
     function showStatus(message, isError = false, duration = 2000) {
         if (statusEl) {
@@ -129,7 +132,106 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error("Button with ID 'openOptionsPageButton' not found in popup.html");
     }
 
+    async function loadTempDisableState() {
+        if (!tempDisablePinToggle) {
+            console.warn("tempDisablePinToggle element not found in popup.js");
+            return;
+        }
+
+        tempDisablePinToggle.disabled = true; // Disable while loading
+
+        try {
+            const tabs = await new Promise((resolve, reject) => {
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                    if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                    if (tabs && tabs.length > 0 && tabs[0].id !== undefined) resolve(tabs); // Check for tab ID
+                    else reject(new Error("No active tab with ID found"));
+                });
+            });
+            const currentTabId = tabs[0].id;
+
+            const result = await new Promise((resolve, reject) => {
+                chrome.storage.session.get([DISABLED_TABS_KEY], (res) => {
+                    if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                    resolve(res);
+                });
+            });
+
+            const disabledTabs = result[DISABLED_TABS_KEY] || [];
+            tempDisablePinToggle.checked = disabledTabs.includes(currentTabId);
+            tempDisablePinToggle.disabled = false; // Re-enable after successful load
+
+        } catch (error) {
+            console.error("Error loading temp disable state:", error.message);
+            // Keep it disabled if there was an error determining state
+            showStatus("Erro ao carregar estado do pin para esta aba.", true, 0);
+        }
+    }
+
+    if (tempDisablePinToggle) {
+        tempDisablePinToggle.addEventListener('change', async () => {
+            if (tempDisablePinToggle.disabled) return;
+
+            let currentTabId;
+            try {
+                const tabs = await new Promise((resolve, reject) => {
+                    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                        if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                        if (tabs && tabs.length > 0 && tabs[0].id !== undefined) resolve(tabs);
+                        else reject(new Error("No active tab with ID found for toggle change"));
+                    });
+                });
+                currentTabId = tabs[0].id;
+
+                const result = await new Promise((resolve, reject) => {
+                    chrome.storage.session.get([DISABLED_TABS_KEY], (res) => {
+                        if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                        resolve(res);
+                    });
+                });
+                let disabledTabs = result[DISABLED_TABS_KEY] || [];
+
+                const actionToContentScript = tempDisablePinToggle.checked ? "temporarilyDisablePins" : "temporarilyEnablePins";
+
+                if (tempDisablePinToggle.checked) {
+                    if (!disabledTabs.includes(currentTabId)) {
+                        disabledTabs.push(currentTabId);
+                    }
+                } else {
+                    disabledTabs = disabledTabs.filter(id => id !== currentTabId);
+                }
+
+                await new Promise((resolve, reject) => {
+                    chrome.storage.session.set({ [DISABLED_TABS_KEY]: disabledTabs }, () => {
+                        if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+                        resolve();
+                    });
+                });
+
+                // Send message to content script
+                chrome.tabs.sendMessage(currentTabId, { action: actionToContentScript }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        console.warn("Could not send message to content script or no listener for:", actionToContentScript, "Tab ID:", currentTabId, "Error:", chrome.runtime.lastError.message);
+                        // Optionally inform user if content script communication is vital and failed
+                        // showStatus("A página precisa ser recarregada para aplicar totalmente.", true, 3000);
+                    }
+                    // You can check response here if content script sends one, e.g. if (response && response.success) ...
+                });
+
+                showStatus(tempDisablePinToggle.checked ? "Pins desativados nesta aba." : "Pins reativados nesta aba.", false);
+
+            } catch (error) {
+                console.error("Error changing temp disable state:", error.message);
+                showStatus("Erro ao alterar estado do pin.", true);
+                // Attempt to revert UI on error, or disable toggle until next popup open
+                // For simplicity, current state might be briefly inconsistent with storage if set fails.
+                // loadTempDisableState(); // Could reload state to revert UI
+            }
+        });
+    }
+
     // Initial loads
     loadProfCategories();
     loadInsertionMode();
+    loadTempDisableState(); // Add this new call
 });
