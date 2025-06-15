@@ -488,8 +488,41 @@ function handleTextInput(event) {
 
     if (commandActive) {
         if (key === "Backspace") {
-            currentCommand = currentCommand.slice(0, -1);
-            if (currentCommand.length < 2) {
+            let charBefore = null;
+            if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+                const start = el.selectionStart || 0;
+                if (start > 0) {
+                    charBefore = el.value.substring(start - 1, start);
+                }
+            } else if (el.isContentEditable) {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    const container = range.startContainer;
+                    const offset = range.startOffset;
+                    if (
+                        range.collapsed &&
+                        container.nodeType === Node.TEXT_NODE &&
+                        offset > 0
+                    ) {
+                        charBefore = container.textContent.substring(
+                            offset - 1,
+                            offset
+                        );
+                    }
+                }
+            }
+
+            if (
+                charBefore &&
+                currentCommand.length > 0 &&
+                charBefore === currentCommand.charAt(currentCommand.length - 1)
+            ) {
+                currentCommand = currentCommand.slice(0, -1);
+                if (currentCommand.length < 2) {
+                    resetCommandState();
+                }
+            } else {
                 resetCommandState();
             }
             return;
