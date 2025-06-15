@@ -902,3 +902,10 @@ async function updateEnabledCareLinesOnSnippetsChange(
     }
 }
 // Re-commit attempt: 2024-05-01T00:00:00.000Z
+// Export for Node.js testing
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        updateEnabledCareLinesOnSnippetsChange,
+        ENABLED_CARE_LINES_KEY,
+    };
+}
