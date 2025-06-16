@@ -515,12 +515,10 @@ function handleTextInput(event) {
                     if (
                         range.collapsed &&
                         container.nodeType === TEXT_NODE_TYPE &&
-                        offset > 0
+                        offset > 0 &&
+                        container.textContent
                     ) {
-                        charBefore = container.textContent.substring(
-                            offset - 1,
-                            offset
-                        );
+                        charBefore = container.textContent.substring(offset - 1, offset);
                     }
                 }
             }
