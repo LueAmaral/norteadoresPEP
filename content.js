@@ -454,6 +454,7 @@ const observer =
         : null;
 
 const COMMAND_TRIGGER_CHAR = "/";
+const TEXT_NODE_TYPE = typeof Node !== "undefined" ? Node.TEXT_NODE : 3;
 let currentCommand = "";
 let commandActive = false;
 let lastKeyWasSlash = false;
@@ -499,16 +500,15 @@ function handleTextInput(event) {
                 if (start > 0) {
                     charBefore = el.value.substring(start - 1, start);
                 }
-            } else if (el.isContentEditable) {
-                const sel = window.getSelection();
+            } else if (el.isContentEditable && typeof window !== "undefined") {
+                const sel = window.getSelection && window.getSelection();
                 if (sel && sel.rangeCount > 0) {
                     const range = sel.getRangeAt(0);
                     const container = range.startContainer;
                     const offset = range.startOffset;
                     if (
                         range.collapsed &&
-                        container.nodeType ===
-                            (typeof Node !== "undefined" ? Node.TEXT_NODE : 3) &&
+                        container.nodeType === TEXT_NODE_TYPE &&
                         offset > 0
                     ) {
                         charBefore = container.textContent.substring(
