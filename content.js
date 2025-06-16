@@ -1,4 +1,6 @@
-console.log("[ContentJS] Script injetado em:", window.location.href);
+if (typeof window !== "undefined" && window.location) {
+    console.log("[ContentJS] Script injetado em:", window.location.href);
+}
 let targetElement = null;
 let customMenu = null;
 let currentInsertionMode = "both";
