@@ -502,7 +502,8 @@ function handleTextInput(event) {
                     const offset = range.startOffset;
                     if (
                         range.collapsed &&
-                        container.nodeType === Node.TEXT_NODE &&
+                        container.nodeType ===
+                            (typeof Node !== "undefined" ? Node.TEXT_NODE : 3) &&
                         offset > 0
                     ) {
                         charBefore = container.textContent.substring(
