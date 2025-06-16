@@ -501,7 +501,7 @@ function handleTextInput(event) {
                     charBefore = el.value.substring(start - 1, start);
                 }
             } else if (el.isContentEditable && typeof window !== "undefined") {
-                const sel = window.getSelection && window.getSelection();
+                const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
                 if (sel && sel.rangeCount > 0) {
                     const range = sel.getRangeAt(0);
                     const container = range.startContainer;
@@ -672,7 +672,7 @@ function insertTextAtCursor(el, textToInsert, commandTyped, isRich) {
 
         if (
             range.collapsed &&
-            container.nodeType === Node.TEXT_NODE &&
+            container.nodeType === TEXT_NODE_TYPE &&
             offset >= commandTyped.length &&
             container.textContent.substring(
                 offset - commandTyped.length,
