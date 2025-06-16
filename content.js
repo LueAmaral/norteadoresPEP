@@ -827,45 +827,47 @@ async function initAfterAllowed() { // Make it async
     window.addEventListener("resize", repositionAllPins);
 }
 
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-    if (request.action === "temporarilyDisablePins") {
-        console.log("[ContentJS] Received 'temporarilyDisablePins' message.");
-        pinsTemporarilyDisabledForThisTab = true;
-        sessionStorage.setItem(SESSION_DISABLED_FLAG_KEY, 'true'); // For current page lifecycle
-        removeAllPinButtons();
-        sendResponse({success: true, status: "Pins disabled on tab"});
-    } else if (request.action === "temporarilyEnablePins") {
-        console.log("[ContentJS] Received 'temporarilyEnablePins' message.");
-        pinsTemporarilyDisabledForThisTab = false;
-        sessionStorage.removeItem(SESSION_DISABLED_FLAG_KEY);
-        // Re-inject buttons.
-        chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
-            if (chrome.runtime.lastError) { // Add error check
-                console.error('[ContentJS_CMD] temporarilyEnablePins: Error getting insertion mode:', chrome.runtime.lastError.message);
-                applyInsertionMode("both"); // Example fallback
-                sendResponse({success: false, error: "Failed to get insertion mode for re-enabling pins"});
-                return;
-            }
-            let mode = response && response.mode ? response.mode : "both";
-            console.log( // Add this log
-                '[ContentJS_CMD] temporarilyEnablePins: Received insertion mode from background:', mode, '(Raw response:', response, ')'
-            );
-            applyInsertionMode(mode); // This will call injectButtons if mode allows
-            sendResponse({success: true, status: "Pins enabled on tab, mode: " + mode });
-        });
-        return true; // Indicates asynchronous response
-    }
-    // Keep other message listeners if any
-});
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.storage) {
+    chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+        if (request.action === "temporarilyDisablePins") {
+            console.log("[ContentJS] Received 'temporarilyDisablePins' message.");
+            pinsTemporarilyDisabledForThisTab = true;
+            sessionStorage.setItem(SESSION_DISABLED_FLAG_KEY, 'true'); // For current page lifecycle
+            removeAllPinButtons();
+            sendResponse({success: true, status: "Pins disabled on tab"});
+        } else if (request.action === "temporarilyEnablePins") {
+            console.log("[ContentJS] Received 'temporarilyEnablePins' message.");
+            pinsTemporarilyDisabledForThisTab = false;
+            sessionStorage.removeItem(SESSION_DISABLED_FLAG_KEY);
+            // Re-inject buttons.
+            chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
+                if (chrome.runtime.lastError) { // Add error check
+                    console.error('[ContentJS_CMD] temporarilyEnablePins: Error getting insertion mode:', chrome.runtime.lastError.message);
+                    applyInsertionMode("both"); // Example fallback
+                    sendResponse({success: false, error: "Failed to get insertion mode for re-enabling pins"});
+                    return;
+                }
+                let mode = response && response.mode ? response.mode : "both";
+                console.log(
+                    '[ContentJS_CMD] temporarilyEnablePins: Received insertion mode from background:', mode, '(Raw response:', response, ')'
+                );
+                applyInsertionMode(mode); // This will call injectButtons if mode allows
+                sendResponse({success: true, status: "Pins enabled on tab, mode: " + mode });
+            });
+            return true; // Indicates asynchronous response
+        }
+        // Keep other message listeners if any
+    });
 
-chrome.storage.local.get(ALLOWED_SITES_KEY, (res) => {
-    const allowed = res[ALLOWED_SITES_KEY] || [];
-    const host = window.location.hostname;
-    if (allowed.length > 0 && !allowed.some((s) => host.includes(s))) {
-        console.log(
-            `[ContentJS] Site '${host}' não está na lista de permitidos. Extensão desativada.`
-        );
-        return;
-    }
-    initAfterAllowed();
-});
+    chrome.storage.local.get(ALLOWED_SITES_KEY, (res) => {
+        const allowed = res[ALLOWED_SITES_KEY] || [];
+        const host = window.location.hostname;
+        if (allowed.length > 0 && !allowed.some((s) => host.includes(s))) {
+            console.log(
+                `[ContentJS] Site '${host}' não está na lista de permitidos. Extensão desativada.`
+            );
+            return;
+        }
+        initAfterAllowed();
+    });
+}
