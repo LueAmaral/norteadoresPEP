@@ -414,14 +414,16 @@ function removeAllPinButtons() {
     pinButtons = [];
 }
 
-const observer = new MutationObserver((mutationsList) => {
-    if (currentInsertionMode === "button" || currentInsertionMode === "both") {
-        for (const mutation of mutationsList) {
-            if (
-                mutation.type === "childList" &&
-                mutation.addedNodes.length > 0
-            ) {
-                let needsInject = false;
+const observer =
+    typeof MutationObserver !== "undefined"
+        ? new MutationObserver((mutationsList) => {
+            if (currentInsertionMode === "button" || currentInsertionMode === "both") {
+                for (const mutation of mutationsList) {
+                    if (
+                        mutation.type === "childList" &&
+                        mutation.addedNodes.length > 0
+                    ) {
+                        let needsInject = false;
                 mutation.addedNodes.forEach((node) => {
                     if (node.nodeType === Node.ELEMENT_NODE) {
                         if (
@@ -448,7 +450,8 @@ const observer = new MutationObserver((mutationsList) => {
             }
         }
     }
-});
+})
+        : null;
 
 const COMMAND_TRIGGER_CHAR = "/";
 let currentCommand = "";
