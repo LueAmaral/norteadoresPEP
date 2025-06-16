@@ -458,6 +458,7 @@ const TEXT_NODE_TYPE = typeof Node !== "undefined" ? Node.TEXT_NODE : 3;
 let currentCommand = "";
 let commandActive = false;
 let lastKeyWasSlash = false;
+let pendingCommandRequest = null;
 
 function handleTextInput(event) {
     console.log('[ContentJS_CMD] handleTextInput triggered. Key:', event.key, 'Target:', event.target.tagName, event.target.isContentEditable);
@@ -493,6 +494,11 @@ function handleTextInput(event) {
     }
 
     if (commandActive) {
+        if (pendingCommandRequest && !pendingCommandRequest.canceled && key !== "Enter" && key !== " ") {
+            // User typed something while waiting for a command response; cancel previous request
+            pendingCommandRequest.canceled = true;
+        }
+
         if (key === "Backspace") {
             let charBefore = null;
             if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
@@ -542,32 +548,40 @@ function handleTextInput(event) {
         if (key === " " || key === "Enter") {
             if (currentCommand.length > 2) {
                 event.preventDefault();
-                const commandName = currentCommand.slice(2).toLowerCase();
+                const commandTyped = currentCommand;
+                const commandName = commandTyped.slice(2).toLowerCase();
+                const requestToken = { canceled: false };
+                pendingCommandRequest = requestToken;
 
                 chrome.runtime.sendMessage(
                     { action: "getSnippetByCommandName", command: commandName },
                     (response) => {
+                        if (requestToken.canceled) {
+                            return; // Ignore response because user kept typing
+                        }
                         if (chrome.runtime.lastError) {
                             console.error(
                                 "[ContentJS] Error fetching snippet by command:",
                                 chrome.runtime.lastError.message
                             );
                             resetCommandState();
+                            pendingCommandRequest = null;
                             return;
                         }
                         if (response && response.content) {
                             insertTextAtCursor(
                                 el,
                                 response.content,
-                                currentCommand,
+                                commandTyped,
                                 response.richText
                             );
                         } else {
                             console.log(
-                                `[ContentJS] Command '${commandName}' (typed as '${currentCommand}') not found.`
+                                `[ContentJS] Command '${commandName}' (typed as '${commandTyped}') not found.`
                             );
                         }
                         resetCommandState();
+                        pendingCommandRequest = null;
                     }
                 );
             } else {
@@ -612,6 +626,10 @@ function handleTextInput(event) {
 function resetCommandState() {
     currentCommand = "";
     commandActive = false;
+    if (pendingCommandRequest) {
+        pendingCommandRequest.canceled = true;
+        pendingCommandRequest = null;
+    }
 }
 
 function insertTextAtCursor(el, textToInsert, commandTyped, isRich) {
