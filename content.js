@@ -791,20 +791,21 @@ function handleTextInput(event) {
     if (key === "Backspace") {
         if (el.isContentEditable && typeof window !== "undefined") {
             const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+            let container = null;
+            let offset = 0;
             if (sel && sel.rangeCount > 0) {
                 const range = sel.getRangeAt(0);
-                const container = range.startContainer;
-                const offset = range.startOffset;
-                if (
-                    range.collapsed &&
-                    container &&
-                    container.nodeType === TEXT_NODE_TYPE &&
-                    offset > 0 &&
-                    container.textContent
-                ) {
-                    const prevChar = container.textContent.substring(offset - 1, offset);
-                    // prevChar can be inspected here if needed
-                }
+                container = range.startContainer;
+                offset = range.startOffset;
+            }
+            if (
+                container &&
+                container.nodeType === TEXT_NODE_TYPE &&
+                offset > 0 &&
+                container.textContent
+            ) {
+                const prevChar = container.textContent.substring(offset - 1, offset);
+                // Inspecting prevChar avoids ReferenceError when deleting
             }
         }
         setTimeout(() => updateAutocomplete(el), 0);
