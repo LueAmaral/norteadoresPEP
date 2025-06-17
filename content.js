@@ -530,6 +530,63 @@ function createAutocompleteMenu() {
     return div;
 }
 
+function getCaretClientRect(el) {
+    if (typeof window === "undefined") return null;
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+        const style = window.getComputedStyle(el);
+        const div = document.createElement("div");
+        const props = [
+            "fontFamily",
+            "fontSize",
+            "fontWeight",
+            "fontStyle",
+            "letterSpacing",
+            "textTransform",
+            "padding",
+            "border",
+            "boxSizing",
+            "whiteSpace",
+            "wordWrap",
+            "lineHeight",
+        ];
+        props.forEach((p) => {
+            div.style[p] = style[p];
+        });
+        div.style.position = "absolute";
+        div.style.visibility = "hidden";
+        div.style.whiteSpace = "pre-wrap";
+        div.style.wordWrap = "break-word";
+        div.style.left = "-9999px";
+        div.style.top = "0";
+        div.style.width = el.offsetWidth + "px";
+        div.textContent = el.value.substring(0, el.selectionStart || 0);
+        const span = document.createElement("span");
+        span.textContent = "\u200b"; // zero-width space
+        div.appendChild(span);
+        document.body.appendChild(div);
+        const rect = span.getBoundingClientRect();
+        document.body.removeChild(div);
+        return rect;
+    } else if (el.isContentEditable && typeof window.getSelection === "function") {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return null;
+        const range = sel.getRangeAt(0).cloneRange();
+        range.collapse(false);
+        let rect = range.getClientRects()[0];
+        if (!rect) {
+            const span = document.createElement("span");
+            span.appendChild(document.createTextNode("\u200b"));
+            range.insertNode(span);
+            rect = span.getBoundingClientRect();
+            span.parentNode.removeChild(span);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+        return rect;
+    }
+    return null;
+}
+
 function hideAutocompleteMenu() {
     if (autocompleteMenu && autocompleteMenu.parentNode) {
         autocompleteMenu.parentNode.removeChild(autocompleteMenu);
@@ -543,11 +600,6 @@ function showAutocompleteMenu(el, suggestions) {
         autocompleteMenu = createAutocompleteMenu();
         document.body.appendChild(autocompleteMenu);
     }
-    const rect = el.getBoundingClientRect();
-    autocompleteMenu.style.left = rect.left + window.scrollX + "px";
-    autocompleteMenu.style.top = rect.bottom + window.scrollY + "px";
-    autocompleteMenu.style.minWidth = rect.width + "px";
-
     autocompleteMenu.innerHTML = "";
     suggestions.forEach((s, idx) => {
         const item = document.createElement("div");
@@ -561,8 +613,21 @@ function showAutocompleteMenu(el, suggestions) {
         });
         autocompleteMenu.appendChild(item);
     });
+    const elRect = el.getBoundingClientRect();
+    const caretRect = getCaretClientRect(el) || elRect;
+    autocompleteMenu.style.minWidth = elRect.width + "px";
+    autocompleteMenu.style.left = caretRect.left + window.scrollX + "px";
+    autocompleteMenu.style.top = caretRect.bottom + window.scrollY + "px";
+    autocompleteMenu.style.visibility = "hidden";
     selectedSuggestionIndex = 0;
     highlightSuggestion();
+    const menuHeight = autocompleteMenu.offsetHeight;
+    let top = caretRect.bottom + window.scrollY;
+    if (top + menuHeight > window.innerHeight) {
+        top = caretRect.top + window.scrollY - menuHeight;
+    }
+    autocompleteMenu.style.top = top + "px";
+    autocompleteMenu.style.visibility = "visible";
 }
 
 function selectSuggestion(index) {
