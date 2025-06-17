@@ -457,6 +457,117 @@ const COMMAND_TRIGGER_CHAR = "/";
 const TEXT_NODE_TYPE = typeof Node !== "undefined" ? Node.TEXT_NODE : 3;
 let pendingCommandRequest = null;
 
+// Simple local snippet list for autocomplete
+const snippets = [
+    { command: "cadastro", content: "Prezado, segue orienta\u00e7\u00e3o de cadastro." },
+    { command: "contato", content: "Entre em contato pelo telefone ..." },
+    { command: "obrigado", content: "Agradecemos o seu contato." },
+    { command: "saudacao", content: "Ol\u00e1, tudo bem?" },
+    { command: "despedida", content: "Atenciosamente," }
+];
+
+let autocompleteMenu = null;
+let selectedSuggestionIndex = -1;
+
+if (typeof document !== "undefined") {
+    document.addEventListener("click", (e) => {
+        if (autocompleteMenu && !autocompleteMenu.contains(e.target)) {
+            hideAutocompleteMenu();
+        }
+    });
+
+    document.addEventListener(
+        "blur",
+        () => {
+            hideAutocompleteMenu();
+        },
+        true
+    );
+}
+
+function createAutocompleteMenu() {
+    const div = document.createElement("div");
+    div.style.position = "absolute";
+    div.style.background = "#fff";
+    div.style.border = "1px solid #ccc";
+    div.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)";
+    div.style.fontSize = "12px";
+    div.style.fontFamily = "Verdana, sans-serif";
+    div.style.zIndex = 2147483647;
+    div.style.maxHeight = "150px";
+    div.style.overflowY = "auto";
+    return div;
+}
+
+function hideAutocompleteMenu() {
+    if (autocompleteMenu && autocompleteMenu.parentNode) {
+        autocompleteMenu.parentNode.removeChild(autocompleteMenu);
+    }
+    autocompleteMenu = null;
+    selectedSuggestionIndex = -1;
+}
+
+function showAutocompleteMenu(el, suggestions) {
+    if (!autocompleteMenu) {
+        autocompleteMenu = createAutocompleteMenu();
+        document.body.appendChild(autocompleteMenu);
+    }
+    const rect = el.getBoundingClientRect();
+    autocompleteMenu.style.left = rect.left + window.scrollX + "px";
+    autocompleteMenu.style.top = rect.bottom + window.scrollY + "px";
+    autocompleteMenu.style.minWidth = rect.width + "px";
+
+    autocompleteMenu.innerHTML = "";
+    suggestions.forEach((s, idx) => {
+        const item = document.createElement("div");
+        item.textContent = s.command;
+        item.style.padding = "4px";
+        item.style.cursor = "pointer";
+        item.addEventListener("mouseover", () => selectSuggestion(idx));
+        item.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            applySuggestion(el, s);
+        });
+        autocompleteMenu.appendChild(item);
+    });
+    selectedSuggestionIndex = 0;
+    highlightSuggestion();
+}
+
+function selectSuggestion(index) {
+    selectedSuggestionIndex = index;
+    highlightSuggestion();
+}
+
+function highlightSuggestion() {
+    if (!autocompleteMenu) return;
+    Array.from(autocompleteMenu.children).forEach((child, idx) => {
+        child.style.background = idx === selectedSuggestionIndex ? "#e6f0ff" : "transparent";
+    });
+}
+
+function applySuggestion(el, snippet) {
+    const commandTyped = getCommandBeforeCursor(el);
+    if (!commandTyped) return;
+    insertTextAtCursor(el, snippet.content, commandTyped, false);
+    hideAutocompleteMenu();
+}
+
+function updateAutocomplete(el) {
+    const commandTyped = getCommandBeforeCursor(el);
+    if (!commandTyped || commandTyped.length < 2) {
+        hideAutocompleteMenu();
+        return;
+    }
+    const typed = commandTyped.slice(2).toLowerCase();
+    const matches = snippets.filter((s) => s.command.startsWith(typed)).slice(0, 5);
+    if (matches.length === 0) {
+        hideAutocompleteMenu();
+        return;
+    }
+    showAutocompleteMenu(el, matches);
+}
+
 function getCommandBeforeCursor(el) {
     if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
         const pos = el.selectionStart || 0;
@@ -500,6 +611,42 @@ function handleTextInput(event) {
 
     const key = event.key;
 
+    if (autocompleteMenu) {
+        if (key === "ArrowDown") {
+            event.preventDefault();
+            const count = autocompleteMenu.children.length;
+            if (count > 0) {
+                selectedSuggestionIndex = (selectedSuggestionIndex + 1) % count;
+                highlightSuggestion();
+            }
+            return;
+        } else if (key === "ArrowUp") {
+            event.preventDefault();
+            const count = autocompleteMenu.children.length;
+            if (count > 0) {
+                selectedSuggestionIndex =
+                    (selectedSuggestionIndex - 1 + count) % count;
+                highlightSuggestion();
+            }
+            return;
+        } else if (key === "Enter") {
+            event.preventDefault();
+            const item = autocompleteMenu.children[selectedSuggestionIndex];
+            if (item) {
+                const snippet = snippets.find(
+                    (s) => s.command === item.textContent
+                );
+                if (snippet) {
+                    applySuggestion(el, snippet);
+                }
+            }
+            return;
+        } else if (key === "Escape") {
+            hideAutocompleteMenu();
+            return;
+        }
+    }
+
     if (key === "Backspace") {
         if (el.isContentEditable && typeof window !== "undefined") {
             const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
@@ -519,6 +666,7 @@ function handleTextInput(event) {
                 }
             }
         }
+        setTimeout(() => updateAutocomplete(el), 0);
         return; // let Backspace proceed normally
     }
 
@@ -567,6 +715,14 @@ function handleTextInput(event) {
                 }
             );
         }
+    }
+
+    if (
+        key.length === 1 ||
+        key === "Backspace" ||
+        key === "Delete"
+    ) {
+        setTimeout(() => updateAutocomplete(el), 0);
     }
 }
 
