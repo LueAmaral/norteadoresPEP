@@ -455,12 +455,34 @@ const observer =
 
 const COMMAND_TRIGGER_CHAR = "/";
 const TEXT_NODE_TYPE = typeof Node !== "undefined" ? Node.TEXT_NODE : 3;
-let currentCommand = "";
-let commandActive = false;
-let lastKeyWasSlash = false;
 let pendingCommandRequest = null;
-let commandExecutionTimer = null;
-const COMMAND_EXECUTION_DELAY_MS = 250;
+
+function getCommandBeforeCursor(el) {
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+        const pos = el.selectionStart || 0;
+        const text = el.value.substring(0, pos);
+        const match = text.match(/(\/\/[\w\d_-]+)$/);
+        return match ? match[1] : null;
+    } else if (el.isContentEditable && typeof window !== "undefined") {
+        const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0) return null;
+        const range = sel.getRangeAt(0);
+        const container = range.startContainer;
+        const offset = range.startOffset;
+        if (
+            range.collapsed &&
+            container &&
+            container.nodeType === TEXT_NODE_TYPE &&
+            offset >= 0 &&
+            container.textContent
+        ) {
+            const text = container.textContent.substring(0, offset);
+            const match = text.match(/(\/\/[\w\d_-]+)$/);
+            return match ? match[1] : null;
+        }
+    }
+    return null;
+}
 
 function handleTextInput(event) {
     console.log('[ContentJS_CMD] handleTextInput triggered. Key:', event.key, 'Target:', event.target.tagName, event.target.isContentEditable);
@@ -468,184 +490,75 @@ function handleTextInput(event) {
     targetElement = el;
 
     if (el.tagName !== "TEXTAREA" && !el.isContentEditable) {
-        resetCommandState();
         return;
     }
     if (customMenu && customMenu.isConnected) return;
 
+    if (!(currentInsertionMode === "command" || currentInsertionMode === "both")) {
+        return;
+    }
+
     const key = event.key;
 
-    if (
-        !(currentInsertionMode === "command" || currentInsertionMode === "both")
-    ) {
-        resetCommandState();
-        return;
-    }
-
-    if (key === COMMAND_TRIGGER_CHAR && !commandActive) {
-        if (lastKeyWasSlash) {
-            currentCommand = "//";
-            commandActive = true;
-            lastKeyWasSlash = false;
-        } else {
-            lastKeyWasSlash = true;
-        }
-        return;
-    } else {
-        lastKeyWasSlash = false;
-    }
-
-    if (commandActive) {
-        if (commandExecutionTimer && key !== "Enter" && key !== " ") {
-            clearTimeout(commandExecutionTimer);
-            commandExecutionTimer = null;
-        }
-        if (pendingCommandRequest && !pendingCommandRequest.canceled && key !== "Enter" && key !== " ") {
-            // User typed something while waiting for a command response; cancel previous request
-            pendingCommandRequest.canceled = true;
-        }
-
-        if (key === "Backspace") {
-            if (commandExecutionTimer) {
-                clearTimeout(commandExecutionTimer);
-                commandExecutionTimer = null;
-            }
-            let charBefore = null;
-            if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
-                const start = el.selectionStart || 0;
-                if (start > 0) {
-                    charBefore = el.value.substring(start - 1, start);
+    if (key === "Backspace") {
+        if (el.isContentEditable && typeof window !== "undefined") {
+            const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+            if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                const container = range.startContainer;
+                const offset = range.startOffset;
+                if (
+                    range.collapsed &&
+                    container &&
+                    container.nodeType === TEXT_NODE_TYPE &&
+                    offset > 0 &&
+                    container.textContent
+                ) {
+                    // safely access char before cursor
+                    container.textContent.substring(offset - 1, offset);
                 }
-            } else if (el.isContentEditable && typeof window !== "undefined") {
-                const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
-                if (sel && sel.rangeCount > 0) {
-                    const range = sel.getRangeAt(0);
-                    const container = range.startContainer;
-                    const offset = range.startOffset;
-                    if (
-                        range.collapsed &&
-                        container.nodeType === TEXT_NODE_TYPE &&
-                        offset > 0 &&
-                        container.textContent
-                    ) {
-                        charBefore = container.textContent.substring(offset - 1, offset);
+            }
+        }
+        return; // let Backspace proceed normally
+    }
+
+    if (key === "Enter" || key === " ") {
+        const commandTyped = getCommandBeforeCursor(el);
+        if (commandTyped && commandTyped.length > 2) {
+            event.preventDefault();
+            const commandName = commandTyped.slice(2).toLowerCase();
+            chrome.runtime.sendMessage(
+                { action: "getSnippetByCommandName", command: commandName },
+                (response) => {
+                    if (chrome.runtime.lastError) {
+                        console.error(
+                            "[ContentJS] Error fetching snippet by command:",
+                            chrome.runtime.lastError.message
+                        );
+                        return;
+                    }
+                    if (response && response.content) {
+                        insertTextAtCursor(
+                            el,
+                            response.content,
+                            commandTyped,
+                            response.richText
+                        );
+                    } else {
+                        console.log(
+                            `[ContentJS] Command '${commandName}' (typed as '${commandTyped}') not found.`
+                        );
                     }
                 }
-            }
-
-            if (
-                charBefore &&
-                currentCommand.length > 0 &&
-                charBefore === currentCommand.charAt(currentCommand.length - 1)
-            ) {
-                currentCommand = currentCommand.slice(0, -1);
-                if (currentCommand.length < 2) {
-                    resetCommandState();
-                }
-            } else {
-                resetCommandState();
-            }
-            return;
-        }
-
-        if (key.length === 1 && /[\w\d_-]/.test(key)) {
-            currentCommand += key;
-            return;
-        }
-
-        if (key === " " || key === "Enter") {
-            if (currentCommand.length > 2) {
-                event.preventDefault();
-                if (commandExecutionTimer) {
-                    clearTimeout(commandExecutionTimer);
-                }
-                const commandTyped = currentCommand;
-                commandExecutionTimer = setTimeout(() => {
-                    const commandName = commandTyped.slice(2).toLowerCase();
-                    const requestToken = { canceled: false };
-                    pendingCommandRequest = requestToken;
-
-                    chrome.runtime.sendMessage(
-                        { action: "getSnippetByCommandName", command: commandName },
-                        (response) => {
-                            if (requestToken.canceled) {
-                                return; // Ignore response because user kept typing
-                            }
-                            if (chrome.runtime.lastError) {
-                                console.error(
-                                    "[ContentJS] Error fetching snippet by command:",
-                                    chrome.runtime.lastError.message
-                                );
-                                resetCommandState();
-                                pendingCommandRequest = null;
-                                return;
-                            }
-                            if (response && response.content) {
-                                insertTextAtCursor(
-                                    el,
-                                    response.content,
-                                    commandTyped,
-                                    response.richText
-                                );
-                            } else {
-                                console.log(
-                                    `[ContentJS] Command '${commandName}' (typed as '${commandTyped}') not found.`
-                                );
-                            }
-                            resetCommandState();
-                            pendingCommandRequest = null;
-                        }
-                    );
-                }, COMMAND_EXECUTION_DELAY_MS);
-            } else {
-                resetCommandState();
-            }
-            return;
-        }
-
-        if (
-            key.length === 1 &&
-            !/[\w\d_-]/.test(key) &&
-            key !== COMMAND_TRIGGER_CHAR
-        ) {
-            resetCommandState();
-        } else if (
-            key.length > 1 &&
-            ![
-                "Shift",
-                "Control",
-                "Alt",
-                "Meta",
-                "ArrowLeft",
-                "ArrowRight",
-                "ArrowUp",
-                "ArrowDown",
-                "Home",
-                "End",
-                "PageUp",
-                "PageDown",
-                "Escape",
-                "Tab",
-            ].includes(key)
-        ) {
-            resetCommandState();
-        }
-        if (key === "Escape") {
-            resetCommandState();
+            );
         }
     }
 }
 
 function resetCommandState() {
-    currentCommand = "";
-    commandActive = false;
     if (pendingCommandRequest) {
         pendingCommandRequest.canceled = true;
         pendingCommandRequest = null;
-    }
-    if (commandExecutionTimer) {
-        clearTimeout(commandExecutionTimer);
-        commandExecutionTimer = null;
     }
 }
 
