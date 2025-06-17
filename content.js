@@ -514,7 +514,7 @@ function handleTextInput(event) {
                     offset > 0 &&
                     container.textContent
                 ) {
-                    // safely access char before cursor
+                    // Safely check character before cursor
                     container.textContent.substring(offset - 1, offset);
                 }
             }
@@ -548,6 +548,21 @@ function handleTextInput(event) {
                         console.log(
                             `[ContentJS] Command '${commandName}' (typed as '${commandTyped}') not found.`
                         );
+                        if (key === "Enter") {
+                            if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+                                pasteSnippetIntoTextarea(el, "\n");
+                            } else if (el.isContentEditable) {
+                                document.execCommand("insertHTML", false, "<br>");
+                                el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+                            }
+                        } else if (key === " ") {
+                            if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+                                pasteSnippetIntoTextarea(el, " ");
+                            } else if (el.isContentEditable) {
+                                document.execCommand("insertText", false, " ");
+                                el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+                            }
+                        }
                     }
                 }
             );
