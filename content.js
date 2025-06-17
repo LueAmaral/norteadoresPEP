@@ -484,12 +484,17 @@ function loadSnippetCommands(callback) {
             snippetCommandsLoading = false;
             if (chrome.runtime.lastError) {
                 console.error("[ContentJS] Error fetching snippets:", chrome.runtime.lastError.message);
-                if (callback) callback();
-                return;
-            }
-            snippetCommands = [];
-            if (response && typeof response === "object") {
+            } else if (response && typeof response === "object" && Object.keys(response).length > 0) {
+                snippetCommands = [];
                 extractCommands(response);
+            } else if (typeof require === "function") {
+                try {
+                    const localSnippets = require("./snippets.json");
+                    snippetCommands = [];
+                    extractCommands(localSnippets);
+                } catch (e) {
+                    console.warn("[ContentJS] Fallback snippet load failed:", e.message);
+                }
             }
             if (callback) callback();
         });
