@@ -458,6 +458,7 @@ const TEXT_NODE_TYPE = typeof Node !== "undefined" ? Node.TEXT_NODE : 3;
 let pendingCommandRequest = null;
 
 let snippetCommands = [];
+let snippetCommandsLoading = false;
 
 function extractCommands(obj) {
     for (const key in obj) {
@@ -472,17 +473,25 @@ function extractCommands(obj) {
     }
 }
 
-function loadSnippetCommands() {
+function loadSnippetCommands(callback) {
+    if (snippetCommandsLoading) {
+        if (callback) setTimeout(callback, 50);
+        return;
+    }
+    snippetCommandsLoading = true;
     if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage({ action: "getAllSnippets" }, (response) => {
+            snippetCommandsLoading = false;
             if (chrome.runtime.lastError) {
                 console.error("[ContentJS] Error fetching snippets:", chrome.runtime.lastError.message);
+                if (callback) callback();
                 return;
             }
             snippetCommands = [];
             if (response && typeof response === "object") {
                 extractCommands(response);
             }
+            if (callback) callback();
         });
     } else if (typeof require === "function") {
         try {
@@ -492,6 +501,11 @@ function loadSnippetCommands() {
         } catch (e) {
             // ignore
         }
+        snippetCommandsLoading = false;
+        if (callback) callback();
+    } else {
+        snippetCommandsLoading = false;
+        if (callback) callback();
     }
 }
 
@@ -677,6 +691,10 @@ function updateAutocomplete(el) {
     const commandTyped = getCommandBeforeCursor(el);
     if (!commandTyped || commandTyped.length < 2) {
         hideAutocompleteMenu();
+        return;
+    }
+    if (snippetCommands.length === 0) {
+        loadSnippetCommands(() => updateAutocomplete(el));
         return;
     }
     const typed = commandTyped.slice(2).toLowerCase();
