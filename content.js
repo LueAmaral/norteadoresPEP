@@ -1,4 +1,6 @@
-console.log("[ContentJS] Script injetado em:", window.location.href);
+if (typeof window !== "undefined" && window.location) {
+    console.log("[ContentJS] Script injetado em:", window.location.href);
+}
 let targetElement = null;
 let customMenu = null;
 let currentInsertionMode = "both";
@@ -412,14 +414,16 @@ function removeAllPinButtons() {
     pinButtons = [];
 }
 
-const observer = new MutationObserver((mutationsList) => {
-    if (currentInsertionMode === "button" || currentInsertionMode === "both") {
-        for (const mutation of mutationsList) {
-            if (
-                mutation.type === "childList" &&
-                mutation.addedNodes.length > 0
-            ) {
-                let needsInject = false;
+const observer =
+    typeof MutationObserver !== "undefined"
+        ? new MutationObserver((mutationsList) => {
+            if (currentInsertionMode === "button" || currentInsertionMode === "both") {
+                for (const mutation of mutationsList) {
+                    if (
+                        mutation.type === "childList" &&
+                        mutation.addedNodes.length > 0
+                    ) {
+                        let needsInject = false;
                 mutation.addedNodes.forEach((node) => {
                     if (node.nodeType === Node.ELEMENT_NODE) {
                         if (
@@ -446,12 +450,296 @@ const observer = new MutationObserver((mutationsList) => {
             }
         }
     }
-});
+})
+        : null;
 
 const COMMAND_TRIGGER_CHAR = "/";
-let currentCommand = "";
-let commandActive = false;
-let lastKeyWasSlash = false;
+const TEXT_NODE_TYPE = typeof Node !== "undefined" ? Node.TEXT_NODE : 3;
+let pendingCommandRequest = null;
+
+let snippetCommands = [];
+let snippetCommandsLoading = false;
+
+function extractCommands(obj) {
+    for (const key in obj) {
+        const val = obj[key];
+        if (val && typeof val === "object") {
+            if (typeof val.command === "string") {
+                snippetCommands.push(val.command);
+            } else {
+                extractCommands(val);
+            }
+        }
+    }
+}
+
+function loadSnippetCommands(callback) {
+    if (snippetCommandsLoading) {
+        if (callback) setTimeout(callback, 50);
+        return;
+    }
+    snippetCommandsLoading = true;
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ action: "getAllSnippets" }, (response) => {
+            snippetCommandsLoading = false;
+            if (chrome.runtime.lastError) {
+                console.error("[ContentJS] Error fetching snippets:", chrome.runtime.lastError.message);
+            } else if (response && typeof response === "object" && Object.keys(response).length > 0) {
+                snippetCommands = [];
+                extractCommands(response);
+            } else if (typeof require === "function") {
+                try {
+                    const localSnippets = require("./snippets.json");
+                    snippetCommands = [];
+                    extractCommands(localSnippets);
+                } catch (e) {
+                    console.warn("[ContentJS] Fallback snippet load failed:", e.message);
+                }
+            }
+            if (callback) callback();
+        });
+    } else if (typeof require === "function") {
+        try {
+            const localSnippets = require("./snippets.json");
+            snippetCommands = [];
+            extractCommands(localSnippets);
+        } catch (e) {
+            // ignore
+        }
+        snippetCommandsLoading = false;
+        if (callback) callback();
+    } else {
+        snippetCommandsLoading = false;
+        if (callback) callback();
+    }
+}
+
+loadSnippetCommands();
+
+let autocompleteMenu = null;
+let selectedSuggestionIndex = -1;
+
+if (typeof document !== "undefined") {
+    document.addEventListener("click", (e) => {
+        if (autocompleteMenu && !autocompleteMenu.contains(e.target)) {
+            hideAutocompleteMenu();
+        }
+    });
+
+    document.addEventListener(
+        "blur",
+        () => {
+            hideAutocompleteMenu();
+        },
+        true
+    );
+}
+
+function createAutocompleteMenu() {
+    const div = document.createElement("div");
+    div.style.position = "absolute";
+    div.style.background = "#fff";
+    div.style.border = "1px solid #ccc";
+    div.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)";
+    div.style.fontSize = "12px";
+    div.style.fontFamily = "Verdana, sans-serif";
+    div.style.zIndex = 2147483647;
+    div.style.maxHeight = "150px";
+    div.style.overflowY = "auto";
+    return div;
+}
+
+function getCaretClientRect(el) {
+    if (typeof window === "undefined") return null;
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+        const style = window.getComputedStyle(el);
+        const div = document.createElement("div");
+        const props = [
+            "fontFamily",
+            "fontSize",
+            "fontWeight",
+            "fontStyle",
+            "letterSpacing",
+            "textTransform",
+            "padding",
+            "border",
+            "boxSizing",
+            "whiteSpace",
+            "wordWrap",
+            "lineHeight",
+        ];
+        props.forEach((p) => {
+            div.style[p] = style[p];
+        });
+        div.style.position = "absolute";
+        div.style.visibility = "hidden";
+        div.style.whiteSpace = "pre-wrap";
+        div.style.wordWrap = "break-word";
+        div.style.left = "-9999px";
+        div.style.top = "0";
+        div.style.width = el.offsetWidth + "px";
+        div.textContent = el.value.substring(0, el.selectionStart || 0);
+        const span = document.createElement("span");
+        span.textContent = "\u200b"; // zero-width space
+        div.appendChild(span);
+        document.body.appendChild(div);
+        const rect = span.getBoundingClientRect();
+        document.body.removeChild(div);
+        return rect;
+    } else if (el.isContentEditable && typeof window.getSelection === "function") {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return null;
+        const range = sel.getRangeAt(0).cloneRange();
+        range.collapse(false);
+        let rect = range.getClientRects()[0];
+        if (!rect) {
+            const span = document.createElement("span");
+            span.appendChild(document.createTextNode("\u200b"));
+            range.insertNode(span);
+            rect = span.getBoundingClientRect();
+            span.parentNode.removeChild(span);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+        return rect;
+    }
+    return null;
+}
+
+function hideAutocompleteMenu() {
+    if (autocompleteMenu && autocompleteMenu.parentNode) {
+        autocompleteMenu.parentNode.removeChild(autocompleteMenu);
+    }
+    autocompleteMenu = null;
+    selectedSuggestionIndex = -1;
+}
+
+function showAutocompleteMenu(el, suggestions) {
+    if (!autocompleteMenu) {
+        autocompleteMenu = createAutocompleteMenu();
+        document.body.appendChild(autocompleteMenu);
+    }
+    autocompleteMenu.innerHTML = "";
+    suggestions.forEach((s, idx) => {
+        const item = document.createElement("div");
+        item.textContent = s.command;
+        item.style.padding = "4px";
+        item.style.cursor = "pointer";
+        item.addEventListener("mouseover", () => selectSuggestion(idx));
+        item.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            applySuggestion(el, s);
+        });
+        autocompleteMenu.appendChild(item);
+    });
+    const elRect = el.getBoundingClientRect();
+    const caretRect = getCaretClientRect(el) || elRect;
+    autocompleteMenu.style.minWidth = elRect.width + "px";
+    autocompleteMenu.style.left = caretRect.left + window.scrollX + "px";
+    autocompleteMenu.style.top = caretRect.bottom + window.scrollY + "px";
+    autocompleteMenu.style.visibility = "hidden";
+    selectedSuggestionIndex = 0;
+    highlightSuggestion();
+    const menuHeight = autocompleteMenu.offsetHeight;
+    let top = caretRect.bottom + window.scrollY;
+    if (top + menuHeight > window.innerHeight) {
+        top = caretRect.top + window.scrollY - menuHeight;
+    }
+    autocompleteMenu.style.top = top + "px";
+    autocompleteMenu.style.visibility = "visible";
+}
+
+function selectSuggestion(index) {
+    selectedSuggestionIndex = index;
+    highlightSuggestion();
+}
+
+function highlightSuggestion() {
+    if (!autocompleteMenu) return;
+    Array.from(autocompleteMenu.children).forEach((child, idx) => {
+        child.style.background = idx === selectedSuggestionIndex ? "#e6f0ff" : "transparent";
+    });
+}
+
+function applySuggestion(el, snippet) {
+    const commandTyped = getCommandBeforeCursor(el);
+    if (!commandTyped) return;
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+        chrome.runtime.sendMessage(
+            { action: "getSnippetByCommandName", command: snippet.command },
+            (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error(
+                        "[ContentJS] Error fetching snippet:",
+                        chrome.runtime.lastError.message
+                    );
+                    hideAutocompleteMenu();
+                    return;
+                }
+                if (response && response.content) {
+                    insertTextAtCursor(
+                        el,
+                        response.content,
+                        commandTyped,
+                        response.richText
+                    );
+                }
+                hideAutocompleteMenu();
+            }
+        );
+    } else {
+        hideAutocompleteMenu();
+    }
+}
+
+function updateAutocomplete(el) {
+    const commandTyped = getCommandBeforeCursor(el);
+    if (!commandTyped || commandTyped.length < 2) {
+        hideAutocompleteMenu();
+        return;
+    }
+    if (snippetCommands.length === 0) {
+        loadSnippetCommands(() => updateAutocomplete(el));
+        return;
+    }
+    const typed = commandTyped.slice(2).toLowerCase();
+    const matches = snippetCommands
+        .filter((c) => c.toLowerCase().startsWith(typed))
+        .slice(0, 5)
+        .map((c) => ({ command: c }));
+    if (matches.length === 0) {
+        hideAutocompleteMenu();
+        return;
+    }
+    showAutocompleteMenu(el, matches);
+}
+
+function getCommandBeforeCursor(el) {
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+        const pos = el.selectionStart || 0;
+        const text = el.value.substring(0, pos);
+        const match = text.match(/(\/\/[\w\d_-]+)$/);
+        return match ? match[1] : null;
+    } else if (el.isContentEditable && typeof window !== "undefined") {
+        const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0) return null;
+        const range = sel.getRangeAt(0);
+        const container = range.startContainer;
+        const offset = range.startOffset;
+        if (
+            range.collapsed &&
+            container &&
+            container.nodeType === TEXT_NODE_TYPE &&
+            offset >= 0 &&
+            container.textContent
+        ) {
+            const text = container.textContent.substring(0, offset);
+            const match = text.match(/(\/\/[\w\d_-]+)$/);
+            return match ? match[1] : null;
+        }
+    }
+    return null;
+}
 
 function handleTextInput(event) {
     console.log('[ContentJS_CMD] handleTextInput triggered. Key:', event.key, 'Target:', event.target.tagName, event.target.isContentEditable);
@@ -459,120 +747,132 @@ function handleTextInput(event) {
     targetElement = el;
 
     if (el.tagName !== "TEXTAREA" && !el.isContentEditable) {
-        resetCommandState();
         return;
     }
     if (customMenu && customMenu.isConnected) return;
 
+    if (!(currentInsertionMode === "command" || currentInsertionMode === "both")) {
+        return;
+    }
+
     const key = event.key;
 
-    if (
-        !(currentInsertionMode === "command" || currentInsertionMode === "both")
-    ) {
-        resetCommandState();
-        return;
-    }
-
-    if (key === COMMAND_TRIGGER_CHAR && !commandActive) {
-        if (lastKeyWasSlash) {
-            currentCommand = "//";
-            commandActive = true;
-            lastKeyWasSlash = false;
-        } else {
-            lastKeyWasSlash = true;
-        }
-        return;
-    } else {
-        lastKeyWasSlash = false;
-    }
-
-    if (commandActive) {
-        if (key === "Backspace") {
-            currentCommand = currentCommand.slice(0, -1);
-            if (currentCommand.length < 2) {
-                resetCommandState();
+    if (autocompleteMenu) {
+        if (key === "ArrowDown") {
+            event.preventDefault();
+            const count = autocompleteMenu.children.length;
+            if (count > 0) {
+                selectedSuggestionIndex = (selectedSuggestionIndex + 1) % count;
+                highlightSuggestion();
             }
             return;
-        }
-
-        if (key.length === 1 && /[\w\d_-]/.test(key)) {
-            currentCommand += key;
+        } else if (key === "ArrowUp") {
+            event.preventDefault();
+            const count = autocompleteMenu.children.length;
+            if (count > 0) {
+                selectedSuggestionIndex =
+                    (selectedSuggestionIndex - 1 + count) % count;
+                highlightSuggestion();
+            }
+            return;
+        } else if (key === "Enter") {
+            event.preventDefault();
+            const item = autocompleteMenu.children[selectedSuggestionIndex];
+            if (item) {
+                applySuggestion(el, { command: item.textContent });
+            }
+            return;
+        } else if (key === "Escape") {
+            hideAutocompleteMenu();
             return;
         }
+    }
 
-        if (key === " " || key === "Enter") {
-            if (currentCommand.length > 2) {
-                event.preventDefault();
-                const commandName = currentCommand.slice(2).toLowerCase();
+    if (key === "Backspace") {
+        if (el.isContentEditable && typeof window !== "undefined") {
+            const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+            let container = null;
+            let offset = 0;
+            if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                container = range.startContainer;
+                offset = range.startOffset;
+            }
+            if (
+                container &&
+                container.nodeType === TEXT_NODE_TYPE &&
+                offset > 0 &&
+                container.textContent
+            ) {
+                const prevChar = container.textContent.substring(offset - 1, offset);
+                // Inspecting prevChar avoids ReferenceError when deleting
+            }
+        }
+        setTimeout(() => updateAutocomplete(el), 0);
+        return; // let Backspace proceed normally
+    }
 
-                chrome.runtime.sendMessage(
-                    { action: "getSnippetByCommandName", command: commandName },
-                    (response) => {
-                        if (chrome.runtime.lastError) {
-                            console.error(
-                                "[ContentJS] Error fetching snippet by command:",
-                                chrome.runtime.lastError.message
-                            );
-                            resetCommandState();
-                            return;
-                        }
-                        if (response && response.content) {
-                            insertTextAtCursor(
-                                el,
-                                response.content,
-                                currentCommand,
-                                response.richText
-                            );
-                        } else {
-                            console.log(
-                                `[ContentJS] Command '${commandName}' (typed as '${currentCommand}') not found.`
-                            );
-                        }
-                        resetCommandState();
+    if (key === "Enter" || key === " ") {
+        const commandTyped = getCommandBeforeCursor(el);
+        if (commandTyped && commandTyped.length > 2) {
+            event.preventDefault();
+            const commandName = commandTyped.slice(2).toLowerCase();
+            chrome.runtime.sendMessage(
+                { action: "getSnippetByCommandName", command: commandName },
+                (response) => {
+                    if (chrome.runtime.lastError) {
+                        console.error(
+                            "[ContentJS] Error fetching snippet by command:",
+                            chrome.runtime.lastError.message
+                        );
+                        return;
                     }
-                );
-            } else {
-                resetCommandState();
-            }
-            return;
+                    if (response && response.content) {
+                        insertTextAtCursor(
+                            el,
+                            response.content,
+                            commandTyped,
+                            response.richText
+                        );
+                    } else {
+                        console.log(
+                            `[ContentJS] Command '${commandName}' (typed as '${commandTyped}') not found.`
+                        );
+                        if (key === "Enter") {
+                            if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+                                pasteSnippetIntoTextarea(el, "\n");
+                            } else if (el.isContentEditable) {
+                                document.execCommand("insertHTML", false, "<br>");
+                                el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+                            }
+                        } else if (key === " ") {
+                            if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+                                pasteSnippetIntoTextarea(el, " ");
+                            } else if (el.isContentEditable) {
+                                document.execCommand("insertText", false, " ");
+                                el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+                            }
+                        }
+                    }
+                }
+            );
         }
+    }
 
-        if (
-            key.length === 1 &&
-            !/[\w\d_-]/.test(key) &&
-            key !== COMMAND_TRIGGER_CHAR
-        ) {
-            resetCommandState();
-        } else if (
-            key.length > 1 &&
-            ![
-                "Shift",
-                "Control",
-                "Alt",
-                "Meta",
-                "ArrowLeft",
-                "ArrowRight",
-                "ArrowUp",
-                "ArrowDown",
-                "Home",
-                "End",
-                "PageUp",
-                "PageDown",
-                "Escape",
-                "Tab",
-            ].includes(key)
-        ) {
-            resetCommandState();
-        }
-        if (key === "Escape") {
-            resetCommandState();
-        }
+    if (
+        key.length === 1 ||
+        key === "Backspace" ||
+        key === "Delete"
+    ) {
+        setTimeout(() => updateAutocomplete(el), 0);
     }
 }
 
 function resetCommandState() {
-    currentCommand = "";
-    commandActive = false;
+    if (pendingCommandRequest) {
+        pendingCommandRequest.canceled = true;
+        pendingCommandRequest = null;
+    }
 }
 
 function insertTextAtCursor(el, textToInsert, commandTyped, isRich) {
@@ -633,7 +933,7 @@ function insertTextAtCursor(el, textToInsert, commandTyped, isRich) {
 
         if (
             range.collapsed &&
-            container.nodeType === Node.TEXT_NODE &&
+            container.nodeType === TEXT_NODE_TYPE &&
             offset >= commandTyped.length &&
             container.textContent.substring(
                 offset - commandTyped.length,
@@ -788,45 +1088,47 @@ async function initAfterAllowed() { // Make it async
     window.addEventListener("resize", repositionAllPins);
 }
 
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-    if (request.action === "temporarilyDisablePins") {
-        console.log("[ContentJS] Received 'temporarilyDisablePins' message.");
-        pinsTemporarilyDisabledForThisTab = true;
-        sessionStorage.setItem(SESSION_DISABLED_FLAG_KEY, 'true'); // For current page lifecycle
-        removeAllPinButtons();
-        sendResponse({success: true, status: "Pins disabled on tab"});
-    } else if (request.action === "temporarilyEnablePins") {
-        console.log("[ContentJS] Received 'temporarilyEnablePins' message.");
-        pinsTemporarilyDisabledForThisTab = false;
-        sessionStorage.removeItem(SESSION_DISABLED_FLAG_KEY);
-        // Re-inject buttons.
-        chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
-            if (chrome.runtime.lastError) { // Add error check
-                console.error('[ContentJS_CMD] temporarilyEnablePins: Error getting insertion mode:', chrome.runtime.lastError.message);
-                applyInsertionMode("both"); // Example fallback
-                sendResponse({success: false, error: "Failed to get insertion mode for re-enabling pins"});
-                return;
-            }
-            let mode = response && response.mode ? response.mode : "both";
-            console.log( // Add this log
-                '[ContentJS_CMD] temporarilyEnablePins: Received insertion mode from background:', mode, '(Raw response:', response, ')'
-            );
-            applyInsertionMode(mode); // This will call injectButtons if mode allows
-            sendResponse({success: true, status: "Pins enabled on tab, mode: " + mode });
-        });
-        return true; // Indicates asynchronous response
-    }
-    // Keep other message listeners if any
-});
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.storage) {
+    chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+        if (request.action === "temporarilyDisablePins") {
+            console.log("[ContentJS] Received 'temporarilyDisablePins' message.");
+            pinsTemporarilyDisabledForThisTab = true;
+            sessionStorage.setItem(SESSION_DISABLED_FLAG_KEY, 'true'); // For current page lifecycle
+            removeAllPinButtons();
+            sendResponse({success: true, status: "Pins disabled on tab"});
+        } else if (request.action === "temporarilyEnablePins") {
+            console.log("[ContentJS] Received 'temporarilyEnablePins' message.");
+            pinsTemporarilyDisabledForThisTab = false;
+            sessionStorage.removeItem(SESSION_DISABLED_FLAG_KEY);
+            // Re-inject buttons.
+            chrome.runtime.sendMessage({ action: "getInsertionMode" }, (response) => {
+                if (chrome.runtime.lastError) { // Add error check
+                    console.error('[ContentJS_CMD] temporarilyEnablePins: Error getting insertion mode:', chrome.runtime.lastError.message);
+                    applyInsertionMode("both"); // Example fallback
+                    sendResponse({success: false, error: "Failed to get insertion mode for re-enabling pins"});
+                    return;
+                }
+                let mode = response && response.mode ? response.mode : "both";
+                console.log(
+                    '[ContentJS_CMD] temporarilyEnablePins: Received insertion mode from background:', mode, '(Raw response:', response, ')'
+                );
+                applyInsertionMode(mode); // This will call injectButtons if mode allows
+                sendResponse({success: true, status: "Pins enabled on tab, mode: " + mode });
+            });
+            return true; // Indicates asynchronous response
+        }
+        // Keep other message listeners if any
+    });
 
-chrome.storage.local.get(ALLOWED_SITES_KEY, (res) => {
-    const allowed = res[ALLOWED_SITES_KEY] || [];
-    const host = window.location.hostname;
-    if (allowed.length > 0 && !allowed.some((s) => host.includes(s))) {
-        console.log(
-            `[ContentJS] Site '${host}' não está na lista de permitidos. Extensão desativada.`
-        );
-        return;
-    }
-    initAfterAllowed();
-});
+    chrome.storage.local.get(ALLOWED_SITES_KEY, (res) => {
+        const allowed = res[ALLOWED_SITES_KEY] || [];
+        const host = window.location.hostname;
+        if (allowed.length > 0 && !allowed.some((s) => host.includes(s))) {
+            console.log(
+                `[ContentJS] Site '${host}' não está na lista de permitidos. Extensão desativada.`
+            );
+            return;
+        }
+        initAfterAllowed();
+    });
+}
