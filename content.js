@@ -457,14 +457,45 @@ const COMMAND_TRIGGER_CHAR = "/";
 const TEXT_NODE_TYPE = typeof Node !== "undefined" ? Node.TEXT_NODE : 3;
 let pendingCommandRequest = null;
 
-// Simple local snippet list for autocomplete
-const snippets = [
-    { command: "cadastro", content: "Prezado, segue orienta\u00e7\u00e3o de cadastro." },
-    { command: "contato", content: "Entre em contato pelo telefone ..." },
-    { command: "obrigado", content: "Agradecemos o seu contato." },
-    { command: "saudacao", content: "Ol\u00e1, tudo bem?" },
-    { command: "despedida", content: "Atenciosamente," }
-];
+let snippetCommands = [];
+
+function extractCommands(obj) {
+    for (const key in obj) {
+        const val = obj[key];
+        if (val && typeof val === "object") {
+            if (typeof val.command === "string") {
+                snippetCommands.push(val.command);
+            } else {
+                extractCommands(val);
+            }
+        }
+    }
+}
+
+function loadSnippetCommands() {
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ action: "getAllSnippets" }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error("[ContentJS] Error fetching snippets:", chrome.runtime.lastError.message);
+                return;
+            }
+            snippetCommands = [];
+            if (response && typeof response === "object") {
+                extractCommands(response);
+            }
+        });
+    } else if (typeof require === "function") {
+        try {
+            const localSnippets = require("./snippets.json");
+            snippetCommands = [];
+            extractCommands(localSnippets);
+        } catch (e) {
+            // ignore
+        }
+    }
+}
+
+loadSnippetCommands();
 
 let autocompleteMenu = null;
 let selectedSuggestionIndex = -1;
@@ -549,8 +580,32 @@ function highlightSuggestion() {
 function applySuggestion(el, snippet) {
     const commandTyped = getCommandBeforeCursor(el);
     if (!commandTyped) return;
-    insertTextAtCursor(el, snippet.content, commandTyped, false);
-    hideAutocompleteMenu();
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+        chrome.runtime.sendMessage(
+            { action: "getSnippetByCommandName", command: snippet.command },
+            (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error(
+                        "[ContentJS] Error fetching snippet:",
+                        chrome.runtime.lastError.message
+                    );
+                    hideAutocompleteMenu();
+                    return;
+                }
+                if (response && response.content) {
+                    insertTextAtCursor(
+                        el,
+                        response.content,
+                        commandTyped,
+                        response.richText
+                    );
+                }
+                hideAutocompleteMenu();
+            }
+        );
+    } else {
+        hideAutocompleteMenu();
+    }
 }
 
 function updateAutocomplete(el) {
@@ -560,7 +615,10 @@ function updateAutocomplete(el) {
         return;
     }
     const typed = commandTyped.slice(2).toLowerCase();
-    const matches = snippets.filter((s) => s.command.startsWith(typed)).slice(0, 5);
+    const matches = snippetCommands
+        .filter((c) => c.toLowerCase().startsWith(typed))
+        .slice(0, 5)
+        .map((c) => ({ command: c }));
     if (matches.length === 0) {
         hideAutocompleteMenu();
         return;
@@ -633,12 +691,7 @@ function handleTextInput(event) {
             event.preventDefault();
             const item = autocompleteMenu.children[selectedSuggestionIndex];
             if (item) {
-                const snippet = snippets.find(
-                    (s) => s.command === item.textContent
-                );
-                if (snippet) {
-                    applySuggestion(el, snippet);
-                }
+                applySuggestion(el, { command: item.textContent });
             }
             return;
         } else if (key === "Escape") {
@@ -661,8 +714,8 @@ function handleTextInput(event) {
                     offset > 0 &&
                     container.textContent
                 ) {
-                    // Safely check character before cursor
-                    container.textContent.substring(offset - 1, offset);
+                    const prevChar = container.textContent.substring(offset - 1, offset);
+                    // prevChar can be inspected here if needed
                 }
             }
         }
